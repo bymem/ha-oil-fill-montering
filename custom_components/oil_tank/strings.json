@@ -1,0 +1,17 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Oil tank",
+        "description": "Set the tank size and the outdoor temperature sensor used to estimate consumption.",
+        "data": {
+          "capacity_l": "Tank capacity",
+          "temperature_entity": "Outdoor temperature sensor"
+        }
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Oil tank is already configured."
+    }
+  }
+}

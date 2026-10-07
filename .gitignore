@@ -1,0 +1,5 @@
+# Real household purchase history - never commit (public repository)
+docs/fills.csv
+
+__pycache__/
+*.pyc
