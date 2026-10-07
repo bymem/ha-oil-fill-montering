@@ -1,0 +1,33 @@
+log_fill:
+  fields:
+    liters:
+      required: true
+      selector:
+        number:
+          min: 1
+          max: 20000
+          step: 1
+          unit_of_measurement: L
+          mode: box
+    price:
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 1000000
+          step: 0.01
+          unit_of_measurement: DKK
+          mode: box
+    date:
+      required: false
+      selector:
+        date:
+    level_after_percent:
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 1
+          unit_of_measurement: "%"
+          mode: slider

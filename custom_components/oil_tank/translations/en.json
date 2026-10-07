@@ -20,9 +20,50 @@
     }
   },
   "entity": {
+    "number": {
+      "tank_level_needle": {
+        "name": "Tank level needle"
+      }
+    },
     "sensor": {
       "price": {
         "name": "Price"
+      },
+      "level": {
+        "name": "Level"
+      },
+      "level_percent": {
+        "name": "Level percent"
+      },
+      "days_remaining": {
+        "name": "Days remaining"
+      },
+      "order_by": {
+        "name": "Order by"
+      }
+    }
+  },
+  "services": {
+    "log_fill": {
+      "name": "Log fill-up",
+      "description": "Record an oil delivery and update the level estimate.",
+      "fields": {
+        "liters": {
+          "name": "Liters",
+          "description": "Liters delivered."
+        },
+        "price": {
+          "name": "Price",
+          "description": "Total paid for the delivery in DKK."
+        },
+        "date": {
+          "name": "Date",
+          "description": "Delivery date. Defaults to today."
+        },
+        "level_after_percent": {
+          "name": "Level after delivery",
+          "description": "Gauge reading after the delivery, if known. Used as a calibration point."
+        }
       }
     }
   }

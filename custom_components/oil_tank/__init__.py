@@ -1,7 +1,8 @@
 """Oil Tank integration.
 
-M1: price feed coordinator, price sensor and a placeholder sidebar panel.
-Level tracking, recommendation and the real panel come in later milestones.
+Price feed coordinator, level tracking (tank manager), sensors, the needle
+number entity, the log_fill service and a placeholder sidebar panel.
+Recommendation and the real panel come in later milestones.
 """
 
 from __future__ import annotations
@@ -15,6 +16,8 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 
 from .const import (
+    CONF_CAPACITY_L,
+    CONF_TEMPERATURE_ENTITY,
     DOMAIN,
     PANEL_ICON,
     PANEL_STATIC_URL,
@@ -22,9 +25,13 @@ from .const import (
     PANEL_URL_PATH,
     PANEL_WEBCOMPONENT,
 )
-from .coordinator import OilTankConfigEntry, OilTankCoordinator
+from .coordinator import OilTankCoordinator
+from .data import OilTankConfigEntry, OilTankData
+from .services import async_register_services, async_remove_services
+from .storage import OilTankStore
+from .tank import TankManager
 
-PLATFORMS = [Platform.SENSOR]
+PLATFORMS = [Platform.NUMBER, Platform.SENSOR]
 
 PANEL_JS_PATH = Path(__file__).parent / "frontend" / "oil-tank-panel.js"
 
@@ -38,17 +45,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: OilTankConfigEntry) -> b
     coordinator = OilTankCoordinator(hass, entry)
     # Plain refresh, not first_refresh: a dead feed must not block setup.
     await coordinator.async_refresh()
-    entry.runtime_data = coordinator
+
+    tank = TankManager(
+        hass,
+        OilTankStore(hass),
+        capacity_l=float(entry.data[CONF_CAPACITY_L]),
+        temperature_entity=entry.data[CONF_TEMPERATURE_ENTITY],
+    )
+    await tank.async_start()
+    entry.runtime_data = OilTankData(coordinator=coordinator, tank=tank)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    async_register_services(hass, tank)
     await _async_register_panel(hass)
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: OilTankConfigEntry) -> bool:
-    """Unload a config entry and remove the sidebar entry."""
+    """Unload a config entry: save state, remove services and the sidebar entry."""
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
+        await entry.runtime_data.tank.async_stop()
+        async_remove_services(hass)
         async_remove_panel(hass, PANEL_URL_PATH)
     return unloaded
 

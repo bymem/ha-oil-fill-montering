@@ -33,8 +33,6 @@ from .prices import PriceStats, price_stats
 
 _LOGGER = logging.getLogger(__name__)
 
-type OilTankConfigEntry = ConfigEntry[OilTankCoordinator]
-
 
 @dataclass(frozen=True)
 class PriceData:
