@@ -71,6 +71,9 @@ class OilTankCoordinator(DataUpdateCoordinator[PriceData]):
         )
         # Entries created before the feed URL was configurable fall back to the default.
         self.feed_url: str = entry.data.get(CONF_FEED_URL, DEFAULT_FEED_URL)
+        # Bumped whenever the price history changes, so the panel only
+        # downloads the full history when there is something new.
+        self.prices_version = 0
 
     async def _async_update_data(self) -> PriceData:
         """Fetch prices; switch to the short retry interval on failure."""
@@ -81,6 +84,8 @@ class OilTankCoordinator(DataUpdateCoordinator[PriceData]):
             raise UpdateFailed(f"Price feed failed: {err}") from err
 
         self.update_interval = FEED_POLL_INTERVAL
+        if self.data is None or self.data.prices != prices:
+            self.prices_version += 1
         stats = price_stats(prices, dt_util.now().date(), DEFAULT_LOOKBACK_DAYS)
         # parse_feed never returns an empty list, so stats is always set here.
         assert stats is not None

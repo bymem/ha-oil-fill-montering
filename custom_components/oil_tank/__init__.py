@@ -1,8 +1,8 @@
 """Oil Tank integration.
 
 Price feed coordinator, level tracking (tank manager), sensors, the needle
-number entity, the order recommendation, the log_fill service and a
-placeholder sidebar panel. The real panel comes in a later milestone.
+number entity, the order recommendation, the log_fill service, and the
+sidebar panel with its websocket API.
 """
 
 from __future__ import annotations
@@ -30,14 +30,15 @@ from .data import OilTankConfigEntry, OilTankData
 from .services import async_register_services, async_remove_services
 from .storage import OilTankStore
 from .tank import TankManager
+from .websocket_api import async_register_commands
 
 PLATFORMS = [Platform.BINARY_SENSOR, Platform.NUMBER, Platform.SENSOR]
 
 PANEL_JS_PATH = Path(__file__).parent / "frontend" / "oil-tank-panel.js"
 
-# hass.data flag: static paths cannot be unregistered, so register only once
-# per Home Assistant run (integration reloads would otherwise raise).
-_STATIC_REGISTERED = f"{DOMAIN}_static_registered"
+# hass.data flag: static paths and websocket commands cannot be unregistered,
+# so register them only once per Home Assistant run (reloads would raise).
+_REGISTERED_ONCE = f"{DOMAIN}_registered_once"
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: OilTankConfigEntry) -> bool:
@@ -72,13 +73,14 @@ async def async_unload_entry(hass: HomeAssistant, entry: OilTankConfigEntry) -> 
 
 
 async def _async_register_panel(hass: HomeAssistant) -> None:
-    """Serve the panel JS file and add the sidebar entry."""
-    if not hass.data.get(_STATIC_REGISTERED):
+    """Serve the panel JS file, register its websocket commands, add the sidebar entry."""
+    if not hass.data.get(_REGISTERED_ONCE):
         # cache_headers=False so a browser refresh picks up JS changes in dev.
         await hass.http.async_register_static_paths(
             [StaticPathConfig(PANEL_STATIC_URL, str(PANEL_JS_PATH), cache_headers=False)]
         )
-        hass.data[_STATIC_REGISTERED] = True
+        async_register_commands(hass)
+        hass.data[_REGISTERED_ONCE] = True
 
     await panel_custom.async_register_panel(
         hass,

@@ -11,19 +11,10 @@ from typing import Any
 from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
-from homeassistant.util import dt as dt_util
 
-from .const import (
-    DEFAULT_BUFFER_DAYS,
-    DEFAULT_LEAD_DAYS,
-    DEFAULT_MIN_ORDER_L,
-    DEFAULT_WINDOW_DAYS,
-)
-from .coordinator import OilTankCoordinator
-from .data import OilTankConfigEntry
-from .decision import Decision, decide
+from .data import OilTankConfigEntry, OilTankData
+from .decision import Decision
 from .entity import TankEntity
-from .tank import TankManager
 
 
 async def async_setup_entry(
@@ -32,13 +23,7 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Create the recommendation entity."""
-    async_add_entities(
-        [
-            OrderRecommendedSensor(
-                entry.runtime_data.tank, entry.runtime_data.coordinator, entry.entry_id
-            )
-        ]
-    )
+    async_add_entities([OrderRecommendedSensor(entry.runtime_data, entry.entry_id)])
 
 
 class OrderRecommendedSensor(TankEntity, BinarySensorEntity):
@@ -46,11 +31,10 @@ class OrderRecommendedSensor(TankEntity, BinarySensorEntity):
 
     _attr_icon = "mdi:truck-delivery"
 
-    def __init__(
-        self, tank: TankManager, coordinator: OilTankCoordinator, entry_id: str
-    ) -> None:
-        super().__init__(tank, entry_id, "order_recommended")
-        self.coordinator = coordinator
+    def __init__(self, runtime: OilTankData, entry_id: str) -> None:
+        super().__init__(runtime.tank, entry_id, "order_recommended")
+        self.runtime = runtime
+        self.coordinator = runtime.coordinator
         self._decision: Decision | None = None
 
     async def async_added_to_hass(self) -> None:
@@ -61,19 +45,7 @@ class OrderRecommendedSensor(TankEntity, BinarySensorEntity):
     @callback
     def async_write_ha_state(self) -> None:
         """Decide once per state write; is_on and attributes read the result."""
-        snapshot = self.tank.snapshot
-        prices = self.coordinator.data
-        self._decision = decide(
-            level_l=snapshot.level_l,
-            days_remaining=snapshot.days_remaining,
-            capacity_l=self.tank.capacity_l,
-            today=dt_util.now().date(),
-            stats=prices.stats if prices else None,
-            lead_days=DEFAULT_LEAD_DAYS,
-            buffer_days=DEFAULT_BUFFER_DAYS,
-            min_order_l=DEFAULT_MIN_ORDER_L,
-            window_days=DEFAULT_WINDOW_DAYS,
-        )
+        self._decision = self.runtime.recommendation()
         super().async_write_ha_state()
 
     @property

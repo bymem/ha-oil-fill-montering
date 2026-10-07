@@ -22,7 +22,7 @@ from homeassistant.helpers.event import (
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import TemperatureConverter
 
-from . import model
+from . import csv_io, model
 from .const import DEFAULT_BUFFER_DAYS, DEFAULT_LEAD_DAYS
 from .storage import OilTankStore
 
@@ -276,6 +276,51 @@ class TankManager:
             "liters": model.clamp(liters, 0.0, self.capacity_l),
             "dd": self.data["dd"],
         }
+
+    async def async_delete_fill(self, fill_id: str) -> None:
+        """Remove a delivery from the history. The level estimate is not changed."""
+        fills = self.data["fills"]
+        remaining = [fill for fill in fills if fill["id"] != fill_id]
+        if len(remaining) == len(fills):
+            raise TankError("That delivery no longer exists")
+        self.data["fills"] = remaining
+        await self._saved()
+
+    async def async_import_csv(self, text: str) -> dict[str, Any]:
+        """Merge a fill history file into the history (spec FR-5).
+
+        History only: imported rows never change the level estimate.
+        """
+        result = csv_io.parse_csv(text)
+        existing = {
+            self._fill_from_dict(fill).key: fill["id"] for fill in self.data["fills"]
+        }
+        merged, added, skipped = csv_io.merge(
+            [self._fill_from_dict(fill) for fill in self.data["fills"]], result.fills
+        )
+        self.data["fills"] = [
+            {
+                "id": existing.get(fill.key) or secrets.token_hex(4),
+                "date": fill.date.isoformat(),
+                "liters": float(fill.liters),
+                "price": float(fill.price),
+            }
+            for fill in merged
+        ]
+        if added:
+            await self._saved()
+        return {"added": added, "skipped": skipped, "errors": result.errors}
+
+    def export_csv(self) -> str:
+        """The history in the canonical three-column format."""
+        return csv_io.export_csv([self._fill_from_dict(fill) for fill in self.data["fills"]])
+
+    def fills_newest_first(self) -> list[dict[str, Any]]:
+        return sorted(self.data["fills"], key=lambda fill: fill["date"], reverse=True)
+
+    @staticmethod
+    def _fill_from_dict(fill: dict[str, Any]) -> csv_io.Fill:
+        return csv_io.Fill(date.fromisoformat(fill["date"]), fill["liters"], fill["price"])
 
     async def _saved(self) -> None:
         """After a user action: recompute, notify, save immediately."""
