@@ -3,7 +3,7 @@
   "name": "Oil Tank",
   "codeowners": [],
   "config_flow": true,
-  "dependencies": [],
+  "dependencies": ["frontend", "http", "panel_custom"],
   "documentation": "https://github.com/bymem/ha-oil-fill-montering",
   "integration_type": "service",
   "iot_class": "cloud_polling",
