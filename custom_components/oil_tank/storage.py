@@ -29,6 +29,9 @@ def _empty_document() -> dict[str, Any]:
         "last_temp": None,
         "last_temp_ts": None,
         "last_calibration": None,
+        # Delivery date of a fill that moved the estimate without a reading;
+        # cleared by the next needle reading (needle-check binary sensor).
+        "needle_check_since": None,
     }
 
 

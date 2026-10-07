@@ -43,6 +43,18 @@ class TankSnapshot:
     level_percent: float | None
     days_remaining: float | None
     order_by: date | None
+    # Modelled liters per day at the current outdoor temperature.
+    daily_l: float | None = None
+
+
+@dataclass(frozen=True)
+class Consumption:
+    """Yearly consumption in use, and where it comes from."""
+
+    annual_l: float
+    source: str  # "history" or "default"
+    fills_used: int = 0
+    since: date | None = None
 
 
 class TankManager:
@@ -59,6 +71,7 @@ class TankManager:
         self.settings = settings
         self.capacity_l = settings.capacity_l
         self.temperature_entity = settings.temperature_entity
+        self.consumption = Consumption(settings.annual_consumption_l, "default")
         self.rates = model.make_rates(
             settings.annual_consumption_l, settings.base_load_share, settings.base_temp_c
         )
@@ -73,6 +86,7 @@ class TankManager:
     async def async_start(self) -> None:
         """Load state, catch up on time spent offline, then start listening."""
         await self.store.async_load()
+        self._update_rates()
         # Catches up on any downtime; long gaps fall back to normal degree-days.
         self._advance(dt_util.utcnow())
         self._read_temperature(self.hass.states.get(self.temperature_entity))
@@ -179,10 +193,12 @@ class TankManager:
     def _recompute(self) -> None:
         """Rebuild the snapshot and notify entities."""
         level = self.estimate_l()
+        now = dt_util.now()
+        daily = model.daily_burn(self.rates, self.data["scale"], self.data["last_temp"], now.month)
         if level is None:
-            self.snapshot = TankSnapshot(None, None, None, None)
+            self.snapshot = TankSnapshot(None, None, None, None, daily)
         else:
-            today = dt_util.now().date()
+            today = now.date()
             remaining = model.days_left(level, today, self.rates, self.data["scale"])
             self.snapshot = TankSnapshot(
                 level_l=level,
@@ -191,6 +207,7 @@ class TankManager:
                 order_by=model.order_by_date(
                     remaining, today, self.settings.lead_days, self.settings.buffer_days
                 ),
+                daily_l=daily,
             )
         for listener in list(self._listeners):
             listener()
@@ -202,6 +219,7 @@ class TankManager:
         if not 0 <= liters <= self.capacity_l:
             raise TankError(f"Level must be between 0 and {self.capacity_l:g} L")
         self._record_reading(liters, delivered_l=0.0)
+        self.data["needle_check_since"] = None
         await self._saved()
 
     async def async_log_fill(
@@ -243,13 +261,26 @@ class TankManager:
             datetime.fromisoformat(baseline["ts"])
         ).date()
 
+        self._update_rates()
+
         if after_reading and level_after_liters is not None:
             # The level after delivery is a calibration point.
             self._record_reading(level_after_liters, delivered_l=liters)
-        elif after_reading and baseline is not None:
-            # No reading given: re-base on the estimate plus the delivery.
-            self._set_baseline(min(self.capacity_l, (self.estimate_l() or 0) + liters))
-        # Otherwise (no reading yet, or older than the reading): history only.
+            self.data["needle_check_since"] = None
+        elif baseline is None:
+            # First fill and no reading yet: start tracking from the history.
+            self._start_from_latest_delivery()
+        elif after_reading:
+            estimate_after = (self.estimate_l() or 0) + liters
+            if estimate_after > self.capacity_l:
+                # It fitted, so the level before was at most capacity - liters:
+                # the model burned too slowly. Learn from that bound.
+                self._record_reading(self.capacity_l, delivered_l=liters)
+            else:
+                # Re-base on the estimate plus the delivery.
+                self._set_baseline(estimate_after)
+            self.data["needle_check_since"] = fill_date.isoformat()
+        # Otherwise (older than the last reading): history only.
 
         await self._saved()
 
@@ -289,12 +320,15 @@ class TankManager:
         if len(remaining) == len(fills):
             raise TankError("That delivery no longer exists")
         self.data["fills"] = remaining
+        self._update_rates()
         await self._saved()
 
     async def async_import_csv(self, text: str) -> dict[str, Any]:
         """Merge a fill history file into the history (spec FR-5).
 
-        History only: imported rows never change the level estimate.
+        Imported rows feed the yearly consumption. They only touch the level
+        when nothing is tracked yet: then tracking starts from the latest
+        delivery.
         """
         result = csv_io.parse_csv(text)
         existing = {
@@ -313,6 +347,9 @@ class TankManager:
             for fill in merged
         ]
         if added:
+            self._update_rates()
+            if self.data["baseline"] is None:
+                self._start_from_latest_delivery()
             await self._saved()
         return {"added": added, "skipped": skipped, "errors": result.errors}
 
@@ -326,6 +363,46 @@ class TankManager:
     @staticmethod
     def _fill_from_dict(fill: dict[str, Any]) -> csv_io.Fill:
         return csv_io.Fill(date.fromisoformat(fill["date"]), fill["liters"], fill["price"])
+
+    def _update_rates(self) -> None:
+        """Burn rates from logged deliveries, or the configured value as fallback."""
+        history = model.annual_from_fills(
+            [(date.fromisoformat(fill["date"]), fill["liters"]) for fill in self.data["fills"]]
+        )
+        if history is None:
+            self.consumption = Consumption(self.settings.annual_consumption_l, "default")
+        else:
+            self.consumption = Consumption(
+                history.annual_l, "history", history.fills_used, history.since
+            )
+        self.rates = model.make_rates(
+            self.consumption.annual_l,
+            self.settings.base_load_share,
+            self.settings.base_temp_c,
+        )
+
+    def _start_from_latest_delivery(self) -> None:
+        """Begin tracking without a reading.
+
+        Assumes the tank was run close to empty before the latest delivery (as
+        the household usually does), so it held that delivery's liters, then
+        subtracts the modelled burn since on normal temperatures. A guess:
+        the needle-check sensor turns on to ask for a correction.
+        """
+        if not self.data["fills"]:
+            return
+        latest = max(self.data["fills"], key=lambda fill: fill["date"])
+        delivered = date.fromisoformat(latest["date"])
+        today = dt_util.now().date()
+        days = (today - delivered).days
+        burned = model.burn_since(
+            self.rates,
+            self.data["scale"],
+            days,
+            model.normal_dd_between(delivered, today, self.rates.base_temp),
+        )
+        self._set_baseline(min(self.capacity_l, latest["liters"]) - burned)
+        self.data["needle_check_since"] = latest["date"]
 
     async def _saved(self) -> None:
         """After a user action: recompute, notify, save immediately."""

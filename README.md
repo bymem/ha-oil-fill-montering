@@ -2,7 +2,7 @@
 
 Keeps track of an oil tank without a working gauge. It estimates the oil left from outdoor temperature, follows the supplier's daily price, and tells you when it is a good moment to order.
 
-- **Level estimate:** you set the gauge "needle" once; from then on the level is modelled from degree-days (outdoor temperature). Every new needle reading corrects the estimate and, slowly, the model itself.
+- **Level estimate:** modelled from degree-days (outdoor temperature) and a burn rate measured from your own logged deliveries. Every delivery moves the estimate; needle readings fine-tune it and, slowly, the model itself.
 - **Price:** today's list price from the supplier's feed, compared with the recent average.
 - **Recommendation:** "order now" when oil runs low, "good time to order" when the price is good and the tank has room.
 - **Panel:** a sidebar page with the gauge, outlook, price chart, fill-up form and history.
@@ -27,10 +27,14 @@ The setup screen asks for:
 
 Then open **Oil tank** in the sidebar:
 
-1. Drag the needle to what your tank's gauge shows and press **Save reading**. Level tracking starts here; before the first reading the level is unknown on purpose.
-2. Optional: **Import CSV** in the History card to load your past deliveries (see below).
+1. **Import CSV** in the History card to load your past deliveries (see below). This does two things:
+   - **Burn rate:** with about a year of deliveries (at least 3), the yearly consumption is measured from them (last 5 years; all deliveries except the latest, over the time between the first and the latest). Until then the configured default is used.
+   - **Starting level:** tracking starts from the latest delivery, assuming the tank was close to empty before it, minus the modelled burn since.
+2. Drag the needle to what your tank's gauge shows and press **Save reading** to correct that starting guess.
 
-Everything else is under Settings → Devices & services → Oil Tank → **Configure**: yearly consumption, hot-water share, heating limit, delivery time, safety buffer, smallest worthwhile order, order window, price comparison window, and whether needle readings adjust the burn rate. Saving reloads the integration; readings and history are kept.
+Without any history, tracking starts with the first needle reading or the first logged delivery.
+
+Everything else is under Settings → Devices & services → Oil Tank → **Configure**: default yearly consumption (used until enough deliveries are logged), hot-water share, heating limit, delivery time, safety buffer, smallest worthwhile order, order window, price comparison window, and whether needle readings adjust the burn rate. Saving reloads the integration; readings and history are kept.
 
 ## Entities
 
@@ -43,6 +47,7 @@ Everything else is under Settings → Devices & services → Oil Tank → **Conf
 | `sensor.oil_tank_order_by` | Last day to order, keeping delivery time and the safety buffer. |
 | `number.oil_tank_tank_level_needle` | Slider in liters (10 L steps). Shows the estimate; setting it records a reading. |
 | `binary_sensor.oil_tank_order_recommended` | On when you should order. Attribute `reason` explains why; `urgent` is true when oil is running out. |
+| `binary_sensor.oil_tank_needle_check` | On after a delivery moved the estimate without a reading; off once you save a needle reading. Attribute `since` is the delivery date. |
 
 ## Logging a delivery
 
@@ -57,7 +62,13 @@ data:
   level_after_liters: 1150  # optional: gauge reading after the delivery
 ```
 
-With `level_after_liters` the delivery also counts as a needle reading. Without it, the estimate is raised by the delivered liters (capped at capacity). Duplicates (same date and liters) and future dates are rejected.
+Every delivery moves the needle to where the model thinks the level is:
+
+- With `level_after_liters` the delivery also counts as a needle reading.
+- Without it, the estimate is raised by the delivered liters, and `binary_sensor.oil_tank_needle_check` turns on so you can fine-tune the needle afterwards.
+- If the estimate plus the delivery would not fit in the tank, the model was burning too slowly: the tank is taken as full and the burn rate learns from it.
+
+Duplicates (same date and liters) and future dates are rejected.
 
 ## Fill history CSV
 
@@ -69,7 +80,7 @@ date,liters,price
 26.08.26,870,19400
 ```
 
-`price` is the total paid for the delivery in DKK. Dates like `12.01.26`, `12.01.2026` and `2026-01-12` all work, as do `;`-separated files and Danish number formats. Importing the same file twice adds nothing. The history is used for the table, the chart and price-per-liter statistics; it never changes the level estimate.
+`price` is the total paid for the delivery in DKK. Dates like `12.01.26`, `12.01.2026` and `2026-01-12` all work, as do `;`-separated files and Danish number formats. Importing the same file twice adds nothing. The history sets the yearly consumption (burn rate), fills the table and chart, and starts level tracking if nothing is tracked yet.
 
 **Privacy:** your fill history is your household's real purchase data. Do not commit it to this public repository (`docs/fills.csv` is git-ignored for that reason).
 
@@ -103,6 +114,25 @@ actions:
         {{ 'Order oil now' if state_attr('binary_sensor.oil_tank_order_recommended', 'urgent')
            else 'Good time to order oil' }}
       message: "{{ state_attr('binary_sensor.oil_tank_order_recommended', 'reason') }}"
+```
+
+## Needle reminder after a fill-up
+
+```yaml
+alias: Oil tank - fine-tune the needle
+mode: single
+triggers:
+  - trigger: state
+    entity_id: binary_sensor.oil_tank_needle_check
+    to: "on"
+actions:
+  - action: notify.notify
+    data:
+      title: Check the oil tank gauge
+      message: >
+        A delivery was logged. Open the Oil tank panel and set the needle to
+        what the gauge shows (estimate now
+        {{ states('sensor.oil_tank_level') | int(0) }} L).
 ```
 
 ## Security note

@@ -6,12 +6,15 @@ import pytest
 from oil_tank.model import (
     DAYS_IN_MONTH,
     accumulate_dd,
+    annual_from_fills,
     annual_normal_dd,
     burn_since,
     calibrate,
     clamp,
+    daily_burn,
     days_left,
     make_rates,
+    normal_dd_between,
     normal_dd_per_day,
     order_by_date,
 )
@@ -100,3 +103,48 @@ def test_calibration_is_capped():
     # Negative actual is treated as 0, ratio capped at 0.5.
     assert calibrate(1.0, predicted=100, actual=-50, interval_days=30) == pytest.approx(0.85)
     assert calibrate(0.55, predicted=100, actual=0, interval_days=30) == 0.5
+
+
+def test_annual_from_fills_excludes_latest_delivery():
+    fills = [(date(2024, 1, 1), 1000), (date(2024, 7, 1), 800), (date(2025, 1, 1), 900)]
+    history = annual_from_fills(fills)
+    # 1,800 L burned over 366 days (2024 is a leap year).
+    assert history.annual_l == pytest.approx(1800 / (366 / 365.25))
+    assert history.fills_used == 3
+    assert history.since == date(2024, 1, 1)
+
+
+def test_annual_from_fills_needs_enough_history():
+    assert annual_from_fills([]) is None
+    # Two fills only.
+    assert annual_from_fills([(date(2024, 1, 1), 1000), (date(2025, 6, 1), 800)]) is None
+    # Three fills, but less than a year apart.
+    assert annual_from_fills([(date(2025, 1, 1), 1), (date(2025, 3, 1), 1), (date(2025, 9, 1), 1)]) is None
+
+
+def test_annual_from_fills_uses_last_five_years():
+    old = [(date(2010, 1, 1), 5000)]
+    recent = [(date(2022, 1, 1), 1000), (date(2023, 1, 1), 1000), (date(2024, 1, 1), 1000)]
+    assert annual_from_fills(old + recent) == annual_from_fills(recent)
+
+
+def test_annual_from_sample_history():
+    from conftest import FIXTURES
+    from oil_tank.csv_io import parse_csv
+
+    fills = parse_csv((FIXTURES / "fills_sample.csv").read_text()).fills
+    history = annual_from_fills([(f.date, f.liters) for f in fills])
+    # Last 5 years before 2026-08-26: 2021-08-26 onwards.
+    assert history.since == date(2022, 1, 11)
+    assert history.fills_used == 10
+    assert 1700 < history.annual_l < 2000
+
+
+def test_normal_dd_between():
+    assert normal_dd_between(date(2026, 1, 1), date(2026, 1, 1), 17) == 0
+    assert normal_dd_between(date(2026, 1, 1), date(2026, 1, 11), 17) == pytest.approx(10 * (17 - 1.8))
+
+
+def test_daily_burn_uses_temperature_or_normal():
+    assert daily_burn(RATES, 1.0, 7, 10) == pytest.approx(RATES.base_l_per_day + RATES.l_per_dd * 10)
+    assert daily_burn(RATES, 1.0, None, 7) == pytest.approx(RATES.base_l_per_day + RATES.l_per_dd * 0)  # July is above 17 C

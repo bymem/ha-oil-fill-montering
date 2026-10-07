@@ -29,6 +29,11 @@ MAX_FORECAST_DAYS = 730
 TEMP_TRUST_DAYS = 6 / 24  # a temperature older than 6 hours is not trusted
 GAP_FALLBACK_DAYS = 2  # longer gaps (Home Assistant down) use normal temperatures
 
+# Yearly consumption from logged deliveries (spec 5.0).
+HISTORY_YEARS = 5
+MIN_HISTORY_DAYS = 365
+MIN_HISTORY_FILLS = 3
+
 # Self-calibration (spec 5.4).
 CALIBRATION_MIN_DAYS = 14
 CALIBRATION_MIN_PREDICTED_L = 20
@@ -75,6 +80,56 @@ def make_rates(
         l_per_dd=annual_l * (1 - base_share) / annual_normal_dd(base_temp),
         base_temp=base_temp,
     )
+
+
+@dataclass(frozen=True)
+class HistoryConsumption:
+    """Yearly consumption measured from deliveries."""
+
+    annual_l: float
+    fills_used: int
+    since: date
+
+
+def annual_from_fills(fills: list[tuple[date, float]]) -> HistoryConsumption | None:
+    """Liters per year from `(date, liters)` deliveries, or None with too little history.
+
+    Over a long enough span, what was bought is what was burned. All
+    deliveries except the latest one were burned between the first and the
+    latest delivery date (the latest is still in the tank). Only the last
+    HISTORY_YEARS before the latest delivery count, so old habits fade out.
+    """
+    if not fills:
+        return None
+    ordered = sorted(fills)
+    latest = ordered[-1][0]
+    cutoff = latest - timedelta(days=round(HISTORY_YEARS * 365.25))
+    recent = [(day, liters) for day, liters in ordered if day >= cutoff]
+    span_days = (latest - recent[0][0]).days
+    if len(recent) < MIN_HISTORY_FILLS or span_days < MIN_HISTORY_DAYS:
+        return None
+    burned = sum(liters for _, liters in recent[:-1])
+    return HistoryConsumption(
+        annual_l=burned / (span_days / 365.25),
+        fills_used=len(recent),
+        since=recent[0][0],
+    )
+
+
+def normal_dd_between(start: date, end: date, base_temp: float) -> float:
+    """Degree-days from `start` up to (not including) `end` on normal temperatures."""
+    total = 0.0
+    day = start
+    while day < end:
+        total += normal_dd_per_day(day.month, base_temp)
+        day += timedelta(days=1)
+    return total
+
+
+def daily_burn(rates: Rates, scale: float, temp: float | None, month: int) -> float:
+    """Liters per day at `temp`, or at the month's normal temperature when unknown."""
+    dd = normal_dd_per_day(month, rates.base_temp) if temp is None else degree_days(temp, rates.base_temp)
+    return scale * (rates.base_l_per_day + rates.l_per_dd * dd)
 
 
 def accumulate_dd(

@@ -324,6 +324,9 @@ class OilTankPanel extends HTMLElement {
       readout.innerHTML = `<span class="big">Set the needle</span><div class="muted small">Drag to the level on your tank's gauge, then save.</div>`;
     } else {
       readout.innerHTML = `<span class="big">${fmtInt(s.level_l)} L</span> <span class="muted">${fmtInt(s.level_percent)}% · estimate</span>`;
+      if (s.needle_check_since) {
+        readout.innerHTML += `<div class="hint small">Estimated after the fill-up on ${esc(fmtDate(s.needle_check_since))}. Drag the needle to match your gauge and save.</div>`;
+      }
     }
   }
 
@@ -355,12 +358,20 @@ class OilTankPanel extends HTMLElement {
         );
     }
 
+    const c = s.consumption;
+    const source =
+      c.source === "history"
+        ? `from ${c.fills_used} deliveries since ${fmtDate(c.since)}`
+        : "default; not enough deliveries logged yet";
+
     this._el("outlook").innerHTML = `
       ${s.price_error ? `<div class="warning small">Price feed problem: ${esc(s.price_error)}</div>` : ""}
       <div class="tiles">
         ${tile("Days of oil left", s.days_remaining === null ? "—" : fmtInt(s.days_remaining))}
         ${tile("Order by", s.order_by ? esc(fmtDate(s.order_by)) : "—")}
         ${priceTiles}
+        ${tile("Burning now", `${s.daily_l.toFixed(1)} L/day`, `<div class="muted small">at the current outdoor temperature</div>`)}
+        ${tile("Per year", `${fmtInt(s.yearly_l)} L`, `<div class="muted small">${esc(source)}</div>`)}
         ${tile("Burn-rate factor", `× ${s.scale.toFixed(2)}`)}
       </div>
     `;
@@ -573,7 +584,7 @@ class OilTankPanel extends HTMLElement {
             )
             .join("")}</tbody>
         </table></div>`
-      : `<div class="muted">No deliveries yet. Log one, or import your history as CSV (date,liters,price).</div>`;
+      : `<div class="muted">No deliveries yet. Log one, or import your history as CSV (date,liters,price). Your deliveries set the burn rate.</div>`;
   }
 
   // ---- Feedback --------------------------------------------------------
@@ -776,6 +787,7 @@ const STYLES = `
   .estimate-mark { stroke: var(--text); stroke-width: 3; stroke-dasharray: 4 3; opacity: 0.7; }
   .hub { fill: var(--text); }
   .gauge-readout { text-align: center; margin-top: 4px; }
+  .hint { color: var(--warn); margin-top: 6px; }
   .big { font-size: 22px; font-weight: 500; }
   .gauge-buttons { display: flex; justify-content: center; gap: 8px; margin: 10px 0 4px; }
   #calibration { text-align: center; margin-top: 8px; }

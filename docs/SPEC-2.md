@@ -1,6 +1,8 @@
 # Oil Tank for Home Assistant - Specification
 
-Status: draft for sign-off. Version 0.3 of this document, 2026-10-07.
+Status: draft for sign-off. Version 0.4 of this document, 2026-10-07.
+
+Changes in 0.4: yearly consumption is measured from the logged deliveries (the configured value is only a fallback); importing or logging deliveries starts level tracking when nothing is tracked yet; every logged delivery moves the estimate; an overflowing delivery is used as a calibration point; new `binary_sensor.oil_tank_needle_check`; the outlook shows the burn per day and per year.
 
 Changes in 0.3: the needle (number entity, panel gauge, websocket `set_level`) and the fill-up "level after delivery" field use liters instead of percent; the needle moves in 10 L steps.
 
@@ -92,7 +94,7 @@ Build something for Home Assistant that:
 * **The parser is still tolerant** so that a re-saved file does not break: dates `YYYY-MM-DD`, `dd.mm.yyyy`, `dd-mm-yyyy`, `dd/mm/yyyy`, `dd.mm.yy`; delimiters `,` `;` tab; numbers like `12490`, `12.490`, `12 490,50`, `1,234.56`, trailing `kr`/`DKK`/`L`; header aliases (case-insensitive) date/dato, liters/litres/liter/l/amount, price/pris/total/kr/dkk; a headerless file is accepted if the first cell parses as a date. Tolerance is a safety net, not a second supported format.
 * **Validation:** `0 < liters <= 20000`, `0 <= price <= 1,000,000`. A bad row is reported with its row number and skipped; good rows are still imported.
 * **Identity of a fill** = same date and same liters (rounded to 0.1). Importing the same data twice changes nothing.
-* **Tank level at the start is NOT in the CSV.** The first needle reading (FR-3) is where level tracking starts. The CSV is used for the history table, the cost/price-per-litre statistics and the calibration baseline, never to reconstruct the tank level.
+* **Tank level at the start is NOT in the CSV.** The CSV sets the yearly consumption (section 5.0) and fills the history table and price statistics. If nothing is tracked yet, importing it starts tracking from the latest delivery (FR-4.3); the needle (FR-3) then corrects that starting guess.
 * **After import, Home Assistant's own storage is the source of truth.** New deliveries are logged in the panel (FR-4). The panel's Export CSV writes the same three columns (ISO dates, dot decimals) as a backup; Import CSV in the panel accepts the same single format.
 * **Privacy:** this file is the household's real purchase history. It must never be committed to the public repository (`docs/fills.csv` is gitignored), and the README must warn about it.
 
@@ -127,7 +129,9 @@ Build something for Home Assistant that:
 3. Effect on the estimate:
    * with "level after" given: that value is recorded as a reading (a calibration point) and the delivered liters are accounted for in the learning step;
    * without it: if the delivery date is on or after the date of the last reading, the estimate is re-based to `min(capacity, current estimate + liters)`; if the delivery is older than the last reading it is history only (the reading already includes it);
-   * with no reading yet: stored as history only.
+   * with no reading yet: tracking starts from the latest delivery in the history, assuming the tank was close to empty before it (level after = its liters), minus the modelled burn since that date on normal temperatures. The same happens when an imported CSV adds deliveries while nothing is tracked.
+   * if the estimate plus the delivery exceeds capacity, the delivery still fitted, so the level before was at most `capacity - liters`: it is recorded as a reading of `capacity` with the delivered liters accounted for, so calibration (5.4) learns from it.
+   * whenever a delivery moves the estimate without a reading, `binary_sensor.oil_tank_needle_check` turns on (attribute `since` = delivery date) until the next needle reading.
 4. A delivery can be deleted from the history. Deleting does not change the level estimate.
 
 ### FR-5 History import/export
@@ -147,6 +151,17 @@ Setup screen: tank capacity (default 1,200 L), outdoor temperature sensor, feed 
 ---
 
 ## 5. Estimation of consumption
+
+### 5.0 Yearly consumption from the deliveries
+The yearly consumption `annual_l` is measured from the logged deliveries whenever there is enough history, and recomputed after every log, import or delete:
+
+```
+recent  = deliveries within 5 years before the latest delivery
+require len(recent) >= 3 and (latest.date - first.date) >= 365 days
+annual_l = sum(liters of recent except the latest) / ((latest.date - first.date) / 365.25)
+```
+
+The latest delivery is excluded because that oil is still in the tank. Otherwise the configured `annual_consumption_l` is used. The outlook shows which source is in use.
 
 Per day, the oil burned is modelled as:
 
@@ -271,7 +286,7 @@ Note for the owner: because the tank is small compared with winter burn (about 8
 | `capacity_l` | 1200 | setup + options | tank capacity in liters |
 | `temperature_entity` | (required) | setup + options | outdoor temperature sensor |
 | `feed_url` | the default feed | setup + options | price feed |
-| `annual_consumption_l` | 1790 | options | typical yearly consumption |
+| `annual_consumption_l` | 1790 | options | typical yearly consumption; fallback only, until 5.0 has enough history |
 | `base_load_share` | 0.2 | options | share of oil that is not space heating |
 | `base_temp_c` | 17 | options | heating limit for degree-days (10 to 25) |
 | `lead_days` | 5 | options | calendar days from order to delivery |
@@ -301,6 +316,7 @@ Setup validates the feed (reachable and parseable) and shows a clear error other
 | `sensor.oil_tank_order_by` | date device class |
 | `number.oil_tank_tank_level_needle` | slider 0 to capacity in liters, step 10 L; state = estimate, write = record a reading |
 | `binary_sensor.oil_tank_order_recommended` | attributes: `reason`, `urgent`, `order_by`, `days_remaining`, `level_liters`, `level_percent`, `price_per_l`, `percent_vs_average` |
+| `binary_sensor.oil_tank_needle_check` | on after a delivery moved the estimate without a reading, off after the next needle reading; attribute `since` |
 
 Entities refresh every 10 minutes and immediately after any user action.
 
@@ -328,7 +344,7 @@ Plain custom element (web component), **no build step**, served from the integra
 
 1. **Banner**: title "Order now" (urgent), "Good time to order" or "No action needed", plus the `reason` text. Colour-coded.
 2. **Gauge**: SVG semicircle labelled in liters (0 to capacity), red zone 0-15% of capacity, amber 15-30%, green 30-100%. The needle is draggable by pointer or touch; the value snaps to 10 L steps; dragging below the horizon snaps to the nearest end. While dragging show liters and "(not saved yet)", the dashed estimate marker, and Save/Cancel. Under the gauge: "Last reading: the model said X L, you set Y L". With no baseline: "Set the needle" and no needle drawn.
-3. **Outlook**: days of oil left, order-by date, today's price with a chip showing percent vs the average (green at or below -3%, red at or above +3%), window range, price date (flag if older than 2 days), burn-rate factor.
+3. **Outlook**: days of oil left, order-by date, burn per day at the current outdoor temperature, burn per year (`annual_l × scale`, with its source), today's price with a chip showing percent vs the average (green at or below -3%, red at or above +3%), window range, price date (flag if older than 2 days), burn-rate factor.
 4. **Price chart**: SVG line of the list price per liter. Range buttons 3 months / 1 year / all. Dashed horizontal line for the window average. A dot and faint vertical line for each of the owner's fills that fall inside the range. Hover shows the date and price. Refetch prices only when `prices_version` changes.
 5. **Fill-up form**: date, liters, total price, optional level after (L), live "= x.xx kr/L". Success and error toasts. The form is not cleared by the 60-second state refresh.
 6. **History**: table newest first (date, liters, paid, kr/L, delete with confirmation) plus Import CSV and Export CSV.

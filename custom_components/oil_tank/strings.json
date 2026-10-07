@@ -28,6 +28,9 @@
     "binary_sensor": {
       "order_recommended": {
         "name": "Order recommended"
+      },
+      "needle_check": {
+        "name": "Needle check"
       }
     },
     "number": {
@@ -86,7 +89,7 @@
           "capacity_l": "Tank capacity",
           "temperature_entity": "Outdoor temperature sensor",
           "feed_url": "Price feed URL",
-          "annual_consumption_l": "Typical yearly consumption",
+          "annual_consumption_l": "Yearly consumption (until enough deliveries are logged)",
           "base_load_share": "Share of oil not used for space heating",
           "base_temp_c": "Heating limit",
           "lead_days": "Delivery time",
@@ -97,7 +100,7 @@
           "calibration_enabled": "Learn from needle readings"
         },
         "data_description": {
-          "annual_consumption_l": "Liters burned in a normal year. Sets the starting burn rate.",
+          "annual_consumption_l": "Used only until about a year of deliveries (at least 3) is logged; after that the yearly consumption is measured from your deliveries.",
           "base_load_share": "Hot water and other use that does not depend on the weather, as a fraction (0.2 = 20%).",
           "base_temp_c": "Outdoor temperature above which the house needs no heating.",
           "lead_days": "Calendar days from ordering until the oil arrives.",

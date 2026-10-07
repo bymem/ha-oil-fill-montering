@@ -1,7 +1,7 @@
-"""Order recommendation binary sensor (spec FR-6).
+"""Binary sensors: order recommendation (spec FR-6) and needle check.
 
-On when it is a good moment (or urgent) to order. Notifications are left to
-a normal Home Assistant automation triggered by this entity (see README).
+Notifications are left to normal Home Assistant automations triggered by
+these entities (see README).
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from .data import OilTankConfigEntry, OilTankData
 from .decision import Decision
 from .entity import TankEntity
+from .tank import TankManager
 
 
 async def async_setup_entry(
@@ -23,7 +24,12 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Create the recommendation entity."""
-    async_add_entities([OrderRecommendedSensor(entry.runtime_data, entry.entry_id)])
+    async_add_entities(
+        [
+            OrderRecommendedSensor(entry.runtime_data, entry.entry_id),
+            NeedleCheckSensor(entry.runtime_data.tank, entry.entry_id),
+        ]
+    )
 
 
 class OrderRecommendedSensor(TankEntity, BinarySensorEntity):
@@ -69,6 +75,27 @@ class OrderRecommendedSensor(TankEntity, BinarySensorEntity):
             "price_per_l": round(stats.price / 1000, 2) if stats else None,
             "percent_vs_average": round(stats.percent_vs_average, 2) if stats else None,
         }
+
+
+class NeedleCheckSensor(TankEntity, BinarySensorEntity):
+    """On after a fill moved the estimate without a reading.
+
+    Off again once a needle reading is saved. Meant for a "fine-tune the
+    needle after the fill-up" reminder.
+    """
+
+    _attr_icon = "mdi:gauge"
+
+    def __init__(self, tank: TankManager, entry_id: str) -> None:
+        super().__init__(tank, entry_id, "needle_check")
+
+    @property
+    def is_on(self) -> bool:
+        return self.tank.data["needle_check_since"] is not None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {"since": self.tank.data["needle_check_since"]}
 
 
 def _rounded(value: float | None, digits: int) -> float | None:

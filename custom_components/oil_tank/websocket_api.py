@@ -79,6 +79,14 @@ def _state(runtime: OilTankData) -> dict[str, Any]:
             None if coordinator.last_update_success else str(coordinator.last_exception)
         ),
         "prices_version": coordinator.prices_version,
+        "daily_l": snapshot.daily_l,
+        "yearly_l": tank.consumption.annual_l * tank.data["scale"],
+        "consumption": {
+            "source": tank.consumption.source,
+            "fills_used": tank.consumption.fills_used,
+            "since": tank.consumption.since.isoformat() if tank.consumption.since else None,
+        },
+        "needle_check_since": tank.data["needle_check_since"],
         "fills": tank.fills_newest_first(),
         "scale": tank.data["scale"],
         "last_calibration": tank.data["last_calibration"],
