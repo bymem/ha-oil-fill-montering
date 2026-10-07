@@ -1,7 +1,7 @@
 """Oil Tank integration.
 
-Skeleton: the config entry loads and unloads and registers a placeholder
-sidebar panel. Platforms (sensors, number, binary sensor) come later.
+M1: price feed coordinator, price sensor and a placeholder sidebar panel.
+Level tracking, recommendation and the real panel come in later milestones.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from pathlib import Path
 from homeassistant.components import panel_custom
 from homeassistant.components.frontend import async_remove_panel
 from homeassistant.components.http import StaticPathConfig
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 
 from .const import (
@@ -22,6 +22,9 @@ from .const import (
     PANEL_URL_PATH,
     PANEL_WEBCOMPONENT,
 )
+from .coordinator import OilTankConfigEntry, OilTankCoordinator
+
+PLATFORMS = [Platform.SENSOR]
 
 PANEL_JS_PATH = Path(__file__).parent / "frontend" / "oil-tank-panel.js"
 
@@ -30,16 +33,24 @@ PANEL_JS_PATH = Path(__file__).parent / "frontend" / "oil-tank-panel.js"
 _STATIC_REGISTERED = f"{DOMAIN}_static_registered"
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_setup_entry(hass: HomeAssistant, entry: OilTankConfigEntry) -> bool:
     """Set up Oil Tank from a config entry."""
+    coordinator = OilTankCoordinator(hass, entry)
+    # Plain refresh, not first_refresh: a dead feed must not block setup.
+    await coordinator.async_refresh()
+    entry.runtime_data = coordinator
+
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     await _async_register_panel(hass)
     return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_unload_entry(hass: HomeAssistant, entry: OilTankConfigEntry) -> bool:
     """Unload a config entry and remove the sidebar entry."""
-    async_remove_panel(hass, PANEL_URL_PATH)
-    return True
+    unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if unloaded:
+        async_remove_panel(hass, PANEL_URL_PATH)
+    return unloaded
 
 
 async def _async_register_panel(hass: HomeAssistant) -> None:

@@ -3,15 +3,27 @@
     "step": {
       "user": {
         "title": "Oil tank",
-        "description": "Set the tank size and the outdoor temperature sensor used to estimate consumption.",
+        "description": "Set the tank size, the outdoor temperature sensor used to estimate consumption, and the supplier's price feed.",
         "data": {
           "capacity_l": "Tank capacity",
-          "temperature_entity": "Outdoor temperature sensor"
+          "temperature_entity": "Outdoor temperature sensor",
+          "feed_url": "Price feed URL"
         }
       }
     },
+    "error": {
+      "cannot_connect": "Could not reach the price feed. Check the URL and your internet connection.",
+      "invalid_feed": "The price feed answered, but its content is not in the expected format."
+    },
     "abort": {
       "single_instance_allowed": "Oil tank is already configured."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "price": {
+        "name": "Price"
+      }
     }
   }
 }

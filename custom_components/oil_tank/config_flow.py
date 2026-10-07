@@ -1,13 +1,16 @@
 """Config flow for Oil Tank.
 
-Asks for the two confirmed settings: tank capacity and outdoor temperature
-sensor. Single instance is enforced by `single_config_entry` in manifest.json.
+Asks for tank capacity, outdoor temperature sensor and price feed URL, and
+checks that the feed is reachable and parseable before creating the entry.
+Single instance is enforced by `single_config_entry` in manifest.json.
 """
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
+import aiohttp
 import voluptuous as vol
 
 from homeassistant.components.sensor import SensorDeviceClass
@@ -16,10 +19,17 @@ from homeassistant.helpers import selector
 
 from .const import (
     CONF_CAPACITY_L,
+    CONF_FEED_URL,
     CONF_TEMPERATURE_ENTITY,
     DEFAULT_CAPACITY_L,
+    DEFAULT_FEED_URL,
     DOMAIN,
 )
+from .coordinator import async_fetch_prices
+from .feed import FeedError
+
+_LOGGER = logging.getLogger(__name__)
+
 
 STEP_USER_SCHEMA = vol.Schema(
     {
@@ -38,6 +48,9 @@ STEP_USER_SCHEMA = vol.Schema(
                 device_class=SensorDeviceClass.TEMPERATURE,
             )
         ),
+        vol.Required(CONF_FEED_URL, default=DEFAULT_FEED_URL): selector.TextSelector(
+            selector.TextSelectorConfig(type=selector.TextSelectorType.URL)
+        ),
     }
 )
 
@@ -50,8 +63,23 @@ class OilTankConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Show the form, then create the entry."""
-        if user_input is not None:
-            return self.async_create_entry(title="Oil tank", data=user_input)
+        """Show the form, validate the feed, then create the entry."""
+        errors: dict[str, str] = {}
 
-        return self.async_show_form(step_id="user", data_schema=STEP_USER_SCHEMA)
+        if user_input is not None:
+            try:
+                await async_fetch_prices(self.hass, user_input[CONF_FEED_URL])
+            except (aiohttp.ClientError, TimeoutError):
+                errors["base"] = "cannot_connect"
+            except FeedError as err:
+                _LOGGER.debug("Feed validation failed: %s", err)
+                errors["base"] = "invalid_feed"
+            else:
+                return self.async_create_entry(title="Oil tank", data=user_input)
+
+        return self.async_show_form(
+            step_id="user",
+            # Refill the form with what was typed when validation failed.
+            data_schema=self.add_suggested_values_to_schema(STEP_USER_SCHEMA, user_input),
+            errors=errors,
+        )

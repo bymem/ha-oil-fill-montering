@@ -3,3 +3,5 @@ docs/fills.csv
 
 __pycache__/
 *.pyc
+.venv/
+.pytest_cache/
