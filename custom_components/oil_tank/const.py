@@ -18,6 +18,8 @@ CONF_MIN_ORDER_L = "min_order_l"
 CONF_WINDOW_DAYS = "window_days"
 CONF_LOOKBACK_DAYS = "lookback_days"
 CONF_CALIBRATION_ENABLED = "calibration_enabled"
+CONF_GAUGE_OFFSET_L = "gauge_offset_l"
+CONF_GAUGE_SCALE_MAX = "gauge_scale_max"
 
 DEFAULT_CAPACITY_L = 1200
 DEFAULT_FEED_URL = "https://www.fyringsolie.dk/api/yx-xml/pg000015BULK.xml"
@@ -35,6 +37,10 @@ DEFAULTS = {
     CONF_WINDOW_DAYS: 45,
     CONF_LOOKBACK_DAYS: 30,
     CONF_CALIBRATION_ENABLED: True,
+    # Panel dial: what the physical gauge shows when the tank is empty, and
+    # the value printed at the end of its scale (None = tank capacity).
+    CONF_GAUGE_OFFSET_L: 0,
+    CONF_GAUGE_SCALE_MAX: None,
 }
 
 # Price feed polling (spec 3.1): prices change once a day.

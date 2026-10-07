@@ -1,6 +1,8 @@
 # Oil Tank for Home Assistant - Specification
 
-Status: draft for sign-off. Version 0.4 of this document, 2026-10-07.
+Status: draft for sign-off. Version 0.5 of this document, 2026-10-07.
+
+Changes in 0.5: the panel dial copies the household's physical gauge (Titan R1225 float gauge) and maps its reading to real liters with a configurable offset (`gauge_offset_l`, `gauge_scale_max`); the outlook shows the liters in the tank.
 
 Changes in 0.4: yearly consumption is measured from the logged deliveries (the configured value is only a fallback); importing or logging deliveries starts level tracking when nothing is tracked yet; every logged delivery moves the estimate; an overflowing delivery is used as a calibration point; new `binary_sensor.oil_tank_needle_check`; the outlook shows the burn per day and per year.
 
@@ -118,7 +120,7 @@ Build something for Home Assistant that:
 3. Expose liters, percent of capacity, days of oil left, and the order-by date.
 
 ### FR-3 Needle (manual level reading)
-1. In the panel: a semicircular gauge in liters, 0 L at the left, tank capacity at the right, with a draggable needle. Dragging does **not** save; a Save button records the reading and a Cancel button discards it.
+1. In the panel: a dial that copies the physical gauge (square face, 200 degree arc, the gauge's printed scale from 0 to `gauge_scale_max`, red zone), with a draggable needle. The dial is only an input: **real liters = gauge reading - `gauge_offset_l`**, clamped to `[0, capacity]`, and only real liters are stored. The offset is what the physical gauge shows when the tank is empty (the household's gauge shows about 200 when empty and runs past its 1200 stop when full). Above `gauge_scale_max - offset` liters the needle rests on its end stop, like the real one. Dragging does **not** save; a Save button records the reading and a Cancel button discards it.
 2. While dragging, show the model's current estimate as a secondary marker so the person sees how far off the model was.
 3. Also available as a Home Assistant `number` entity (slider, 0 to capacity in liters, step 10 L) whose state is the current estimate and whose write records a reading, so it can be used on dashboards and in automations.
 4. Recording a reading: store `{time, liters, degree-day counter}` as the new baseline and (if enough time has passed) nudge the burn-rate scale (section 6.4).
@@ -294,6 +296,8 @@ Note for the owner: because the tank is small compared with winter burn (about 8
 | `min_order_l` | 500 | options | smallest worthwhile order |
 | `window_days` | 45 | options | how long before the order-by date to look for a good price |
 | `lookback_days` | 30 | options | price comparison window |
+| `gauge_offset_l` | 0 | options | what the physical gauge reads when the tank is empty |
+| `gauge_scale_max` | capacity | options | value printed at the end of the physical gauge's scale |
 
 Setup validates the feed (reachable and parseable) and shows a clear error otherwise. Single instance only. Options changes reload the integration.
 
@@ -343,8 +347,8 @@ Plain custom element (web component), **no build step**, served from the integra
 **Look and feel:** the panel should read as part of Home Assistant itself. Follow the same pattern as the owner's other Home Assistant frontends: a small set of local colour tokens (`--bg`, `--panel`, `--panel-2`, `--line`, `--text`, `--muted`, `--accent`, as in `reolink-nvr-bridge`) defined on `:host` from Home Assistant's own theme variables (`--primary-background-color`, `--card-background-color`, `--divider-color`, `--primary-color`, `--success-color`/`--warning-color`/`--error-color`, `--ha-card-border-radius`, `--ha-card-box-shadow`, ...), with derived colours via `color-mix`; and Home Assistant's own elements where they exist (`ha-menu-button`, `ha-icon`), as in `ha-meal-planer`. No hard-coded palette except as fallbacks, so theme changes follow automatically.
 
 1. **Banner**: title "Order now" (urgent), "Good time to order" or "No action needed", plus the `reason` text. Colour-coded.
-2. **Gauge**: SVG semicircle labelled in liters (0 to capacity), red zone 0-15% of capacity, amber 15-30%, green 30-100%. The needle is draggable by pointer or touch; the value snaps to 10 L steps; dragging below the horizon snaps to the nearest end. While dragging show liters and "(not saved yet)", the dashed estimate marker, and Save/Cancel. Under the gauge: "Last reading: the model said X L, you set Y L". With no baseline: "Set the needle" and no needle drawn.
-3. **Outlook**: days of oil left, order-by date, burn per day at the current outdoor temperature, burn per year (`annual_l × scale`, with its source), today's price with a chip showing percent vs the average (green at or below -3%, red at or above +3%), window range, price date (flag if older than 2 days), burn-rate factor.
+2. **Gauge**: SVG copy of the physical dial (no frame, as large as the card allows): 200 degree arc from just below horizontal on the left over the top to just below horizontal on the right, labels every 100 (scaled for other sizes) with minor ticks at the halves, "L" after the last label, red zone up to the offset (at least 15% of the scale), and a "0" marker at the offset where the gauge sits when empty. Colours follow the theme (printed scale in the accent colour). The needle is draggable by pointer or touch; the reading snaps to steps of 10; outside the arc it snaps to the nearest end. Below the dial: "390 L · gauge 590", or "1,150 L · gauge at its stop" above the scale. While editing the big number is the gauge reading ("620") with "= 420 L · not saved yet" under it, so it can be matched against the real gauge directly. While editing also show the dashed estimate marker and Save/Cancel. Editing starts by dragging, or with an **Adjust** button that starts from the current needle position without moving it. While editing, round **−** and **+** buttons either side of the readout move the reading by 10 per press and repeat while held. Under the gauge: "Last reading: the model said X L, you set Y L". With no baseline: "Set the needle" and no needle drawn.
+3. **Outlook**: liters in the tank, days of oil left, order-by date, burn per day at the current outdoor temperature, burn per year (`annual_l × scale`, with its source), today's price with a chip showing percent vs the average (green at or below -3%, red at or above +3%), window range, price date (flag if older than 2 days), burn-rate factor.
 4. **Price chart**: SVG line of the list price per liter. Range buttons 3 months / 1 year / all. Dashed horizontal line for the window average. A dot and faint vertical line for each of the owner's fills that fall inside the range. Hover shows the date and price. Refetch prices only when `prices_version` changes.
 5. **Fill-up form**: date, liters, total price, optional level after (L), live "= x.xx kr/L". Success and error toasts. The form is not cleared by the 60-second state refresh.
 6. **History**: table newest first (date, liters, paid, kr/L, delete with confirmation) plus Import CSV and Export CSV.

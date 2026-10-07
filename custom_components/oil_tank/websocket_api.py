@@ -65,6 +65,10 @@ def _state(runtime: OilTankData) -> dict[str, Any]:
 
     return {
         "capacity_l": tank.capacity_l,
+        "gauge": {
+            "offset_l": runtime.settings.gauge_offset_l,
+            "scale_max": runtime.settings.gauge_scale_max,
+        },
         "level_l": snapshot.level_l,
         "level_percent": snapshot.level_percent,
         "days_remaining": snapshot.days_remaining,

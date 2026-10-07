@@ -20,6 +20,8 @@ from .const import (
     CONF_CALIBRATION_ENABLED,
     CONF_CAPACITY_L,
     CONF_FEED_URL,
+    CONF_GAUGE_OFFSET_L,
+    CONF_GAUGE_SCALE_MAX,
     CONF_LEAD_DAYS,
     CONF_LOOKBACK_DAYS,
     CONF_MIN_ORDER_L,
@@ -45,12 +47,15 @@ class Settings:
     window_days: int
     lookback_days: int
     calibration_enabled: bool
+    gauge_offset_l: float
+    gauge_scale_max: float
 
     @classmethod
     def from_entry(cls, entry: ConfigEntry) -> Settings:
         values: dict[str, Any] = {**DEFAULTS, **entry.data, **entry.options}
+        capacity = float(values[CONF_CAPACITY_L])
         return cls(
-            capacity_l=float(values[CONF_CAPACITY_L]),
+            capacity_l=capacity,
             temperature_entity=values[CONF_TEMPERATURE_ENTITY],
             feed_url=values[CONF_FEED_URL],
             annual_consumption_l=float(values[CONF_ANNUAL_CONSUMPTION_L]),
@@ -63,4 +68,6 @@ class Settings:
             window_days=int(values[CONF_WINDOW_DAYS]),
             lookback_days=int(values[CONF_LOOKBACK_DAYS]),
             calibration_enabled=bool(values[CONF_CALIBRATION_ENABLED]),
+            gauge_offset_l=float(values[CONF_GAUGE_OFFSET_L]),
+            gauge_scale_max=float(values[CONF_GAUGE_SCALE_MAX] or capacity),
         )

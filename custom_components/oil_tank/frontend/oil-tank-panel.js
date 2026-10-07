@@ -21,8 +21,9 @@ const NEEDLE_STEP_L = 10;
 const STALE_PRICE_DAYS = 2;
 const CHART_RANGES = { "3m": 92, "1y": 366, all: Infinity };
 
-// Gauge geometry (SVG units).
-const G = { cx: 150, cy: 150, r: 118, width: 22 };
+// Gauge geometry (SVG units). The arc runs from `start` degrees (left,
+// slightly below horizontal) clockwise over the top through `sweep` degrees.
+const G = { cx: 160, cy: 150, r: 108, start: 190, sweep: 200 };
 
 class OilTankPanel extends HTMLElement {
   constructor() {
@@ -223,34 +224,100 @@ class OilTankPanel extends HTMLElement {
   }
 
   // ---- Gauge -----------------------------------------------------------
+  //
+  // The dial copies the physical gauge (a Titan-style square float gauge):
+  // the same printed scale, a 200 degree arc and the red zone. It is only a
+  // way to enter a number: what gets saved is real liters,
+  //   real liters = gauge reading - gauge offset
+  // where the offset is what the physical gauge shows when the tank is empty.
+  // Above (scale max - offset) liters the needle rests on its end stop, like
+  // the real one.
+
+  /** Gauge settings from the state: offset, printed scale end, capacity. */
+  _scale() {
+    const s = this._state;
+    return { offset: s.gauge.offset_l, max: s.gauge.scale_max, cap: s.capacity_l };
+  }
+
+  _readingToLiters(reading) {
+    const { offset, cap } = this._scale();
+    return Math.min(cap, Math.max(0, reading - offset));
+  }
+
+  _litersToReading(liters) {
+    const { offset, max } = this._scale();
+    return Math.min(max, Math.max(0, liters + offset));
+  }
 
   _renderGauge() {
     const s = this._state;
-    const cap = s.capacity_l;
-    const zone = (from, to, cls) =>
-      `<path class="zone ${cls}" d="${arcPath(from, to)}"></path>`;
-    const ticks = [0, 0.25, 0.5, 0.75, 1]
-      .map((f) => {
-        const [x, y] = gaugePoint(f, G.r + G.width / 2 + 14);
-        return `<text class="tick" x="${x}" y="${y}" text-anchor="middle">${fmtInt(f * cap)}</text>`;
-      })
-      .join("");
+    const { offset, max, cap } = this._scale();
+    const major = niceStep(max / 12);
+    const minor = major / 2;
+
+    // Tick marks and printed labels, as on the physical dial.
+    let scale = "";
+    for (let v = 0; v <= max + 1e-6; v += minor) {
+      const f = v / max;
+      const isMajor = Math.abs(v / major - Math.round(v / major)) < 1e-6;
+      const [x1, y1] = gaugePoint(f, G.r - (isMajor ? 16 : 9));
+      const [x2, y2] = gaugePoint(f, G.r);
+      scale += `<line class="tick${isMajor ? " major" : ""}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"></line>`;
+      if (isMajor) {
+        const [tx, ty] = gaugePoint(f, G.r + 19);
+        scale += `<text class="label" x="${tx}" y="${ty}">${v}</text>`;
+      }
+    }
+    const [ux, uy] = gaugePoint(1, G.r + 19);
+
+    // Red zone like the printed one: up to the offset (where the tank is
+    // really empty), at least the bottom 15% of the scale.
+    const redEnd = Math.max(offset, 0.15 * max) / max;
+    // The owner's "0" line: where the physical gauge sits when empty.
+    let zeroMark = "";
+    if (offset > 0) {
+      const f = offset / max;
+      const [x1, y1] = gaugePoint(f, G.r - 34);
+      const [x2, y2] = gaugePoint(f, G.r + 4);
+      const [tx, ty] = gaugePoint(f, G.r - 44);
+      zeroMark = `<line class="zero-mark" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"></line>
+                  <text class="zero-label" x="${tx}" y="${ty}">0</text>`;
+    }
 
     this._el("gauge").innerHTML = `
-      <svg class="gauge" viewBox="0 -12 300 182" role="slider" aria-label="Tank level needle">
-        ${zone(0, 0.15, "bad")}${zone(0.15, 0.3, "warn")}${zone(0.3, 1, "good")}
-        ${ticks}
+      <svg class="gauge" viewBox="0 8 320 214" role="slider" aria-label="Tank level needle">
+        <path class="red-zone" d="${arcPath(0, redEnd, G.r - 27)}"></path>
+        ${scale}
+        <text class="label" x="${ux}" y="${uy + 18}">L</text>
+        ${zeroMark}
+        <text class="tank-text" x="${G.cx}" y="${G.cy + 62}">${fmtInt(cap)} L tank</text>
         <line id="estimate-mark" class="estimate-mark" hidden></line>
         <line id="needle" class="needle" hidden></line>
-        <circle cx="${G.cx}" cy="${G.cy}" r="7" class="hub"></circle>
+        <circle class="hub" cx="${G.cx}" cy="${G.cy}" r="13"></circle>
+        <circle class="hub-dot" cx="${G.cx}" cy="${G.cy}" r="5"></circle>
       </svg>
-      <div class="gauge-readout" id="readout"></div>
-      <div class="gauge-buttons" id="gauge-buttons" hidden>
-        <button id="cancel">Cancel</button>
-        <button id="save" class="primary">Save reading</button>
+      <div class="gauge-readout">
+        <button class="step" id="minus" aria-label="Lower 10" hidden>−</button>
+        <span id="readout"></span>
+        <button class="step" id="plus" aria-label="Raise 10" hidden>+</button>
+      </div>
+      <div class="hint small" id="gauge-hint" hidden></div>
+      <div class="gauge-buttons">
+        <button id="adjust">Adjust</button>
+        <button id="cancel" hidden>Cancel</button>
+        <button id="save" class="primary" hidden>Save reading</button>
       </div>
       <div class="muted small" id="calibration"></div>
     `;
+
+    // Adjust: start editing from where the needle is now, without moving it.
+    this._el("adjust").addEventListener("click", () => {
+      const s = this._state;
+      this._pending = s.level_l === null ? offset : this._litersToReading(s.level_l);
+      this._updateNeedle();
+    });
+    this._bindStepButton(this._el("minus"), -NEEDLE_STEP_L);
+    this._bindStepButton(this._el("plus"), NEEDLE_STEP_L);
 
     const svg = this.shadowRoot.querySelector("svg.gauge");
     svg.addEventListener("pointerdown", (ev) => {
@@ -274,7 +341,7 @@ class OilTankPanel extends HTMLElement {
       this._updateNeedle();
     });
     this._el("save").addEventListener("click", async () => {
-      const liters = this._pending;
+      const liters = this._readingToLiters(this._pending);
       if (await this._action("set_level", { liters }, `Reading saved: ${fmtInt(liters)} L`)) {
         this._pending = null;
         this._updateNeedle();
@@ -289,43 +356,91 @@ class OilTankPanel extends HTMLElement {
     this._updateNeedle();
   }
 
-  /** Pointer position -> liters, snapped to 10 L. Below the horizon snaps to an end. */
+  /** +/- button: one step per press, repeating while held (like a volume button). */
+  _bindStepButton(button, delta) {
+    let timer = null;
+    const step = () => {
+      const { max } = this._scale();
+      this._pending = Math.min(max, Math.max(0, this._pending + delta));
+      this._updateNeedle();
+    };
+    const stop = () => {
+      clearTimeout(timer);
+      clearInterval(timer);
+      timer = null;
+    };
+    button.addEventListener("pointerdown", (ev) => {
+      ev.preventDefault();
+      step();
+      timer = setTimeout(() => (timer = setInterval(step, 80)), 400);
+    });
+    for (const type of ["pointerup", "pointerleave", "pointercancel"]) {
+      button.addEventListener(type, stop);
+    }
+    // Keyboard (Enter/Space) produces a click without a pointer press.
+    button.addEventListener("click", (ev) => {
+      if (ev.detail === 0) {
+        step();
+      }
+    });
+  }
+
+  /** Pointer position -> gauge reading, snapped to 10. Outside the arc snaps to the nearest end. */
   _dragTo(svg, ev) {
     const pt = svg.createSVGPoint();
     pt.x = ev.clientX;
     pt.y = ev.clientY;
     const p = pt.matrixTransform(svg.getScreenCTM().inverse());
-    const dx = p.x - G.cx;
-    const dy = G.cy - p.y;
-    const fraction = dy < 0 ? (dx < 0 ? 0 : 1) : 1 - Math.atan2(dy, dx) / Math.PI;
-    const cap = this._state.capacity_l;
-    this._pending = Math.min(cap, Math.round((fraction * cap) / NEEDLE_STEP_L) * NEEDLE_STEP_L);
+    let angle = (Math.atan2(G.cy - p.y, p.x - G.cx) * 180) / Math.PI;
+    if (angle < -90) {
+      angle += 360; // lower left belongs to the start of the arc
+    }
+    const fraction = Math.min(1, Math.max(0, (G.start - angle) / G.sweep));
+    const { max } = this._scale();
+    this._pending = Math.round((fraction * max) / NEEDLE_STEP_L) * NEEDLE_STEP_L;
     this._updateNeedle();
   }
 
   /** Move the needle and markers in place (no re-render, keeps pointer capture). */
   _updateNeedle() {
     const s = this._state;
-    const cap = s.capacity_l;
+    const { offset, max } = this._scale();
     const needle = this._el("needle");
     const mark = this._el("estimate-mark");
     const readout = this._el("readout");
-    const buttons = this._el("gauge-buttons");
-    const shown = this._pending ?? s.level_l;
+    const hint = this._el("gauge-hint");
+    const estimateReading = s.level_l === null ? null : this._litersToReading(s.level_l);
+    const shown = this._pending ?? estimateReading;
 
-    placeLine(needle, shown === null ? null : shown / cap, 18, G.r - 4);
+    placeLine(needle, shown === null ? null : shown / max, -14, G.r - 10);
     // The estimate marker only appears while a new value is pending.
-    placeLine(mark, this._pending !== null && s.level_l !== null ? s.level_l / cap : null, G.r - G.width / 2 - 6, G.r + G.width / 2 + 4);
-    buttons.hidden = this._pending === null;
+    placeLine(
+      mark,
+      this._pending !== null && estimateReading !== null ? estimateReading / max : null,
+      G.r - 30,
+      G.r + 4,
+    );
+    const editing = this._pending !== null;
+    for (const id of ["cancel", "save", "minus", "plus"]) {
+      this._el(id).hidden = !editing;
+    }
+    this._el("adjust").hidden = editing;
+    hint.hidden = true;
 
     if (this._pending !== null) {
-      readout.innerHTML = `<span class="big">${fmtInt(this._pending)} L</span> <span class="muted">(not saved yet)</span>`;
+      const liters = this._readingToLiters(this._pending);
+      // While editing, the gauge reading is what you match against the tank.
+      readout.innerHTML = `<span class="big">${fmtInt(this._pending)}</span>
+        <div class="muted small">= ${fmtInt(liters)} L · not saved yet</div>`;
     } else if (s.level_l === null) {
-      readout.innerHTML = `<span class="big">Set the needle</span><div class="muted small">Drag to the level on your tank's gauge, then save.</div>`;
+      readout.innerHTML = `<span class="big">Set the needle</span><div class="muted small">Drag to what your tank's gauge shows, then save.</div>`;
     } else {
-      readout.innerHTML = `<span class="big">${fmtInt(s.level_l)} L</span> <span class="muted">${fmtInt(s.level_percent)}% · estimate</span>`;
+      const atStop = s.level_l + offset > max;
+      readout.innerHTML = `<span class="big">${fmtInt(s.level_l)} L</span>
+        <span class="muted">· ${atStop ? "gauge at its stop" : `gauge ${fmtInt(estimateReading)}`}</span>`;
       if (s.needle_check_since) {
-        readout.innerHTML += `<div class="hint small">Estimated after the fill-up on ${esc(fmtDate(s.needle_check_since))}. Drag the needle to match your gauge and save.</div>`;
+        hint.hidden = false;
+        hint.textContent = `Estimated after the fill-up on ${fmtDate(s.needle_check_since)}. Adjust the needle to match your gauge and save.`;
       }
     }
   }
@@ -367,6 +482,7 @@ class OilTankPanel extends HTMLElement {
     this._el("outlook").innerHTML = `
       ${s.price_error ? `<div class="warning small">Price feed problem: ${esc(s.price_error)}</div>` : ""}
       <div class="tiles">
+        ${tile("In tank", s.level_l === null ? "—" : `${fmtInt(s.level_l)} L`)}
         ${tile("Days of oil left", s.days_remaining === null ? "—" : fmtInt(s.days_remaining))}
         ${tile("Order by", s.order_by ? esc(fmtDate(s.order_by)) : "—")}
         ${priceTiles}
@@ -618,16 +734,28 @@ function errorText(err) {
   return err?.message || String(err);
 }
 
-/** Point on the gauge arc for a fill fraction (0 = left, 1 = right). */
+/** Point on the gauge arc for a scale fraction (0 = start, 1 = end). */
 function gaugePoint(fraction, radius) {
-  const angle = Math.PI * (1 - fraction);
+  const angle = ((G.start - G.sweep * fraction) * Math.PI) / 180;
   return [G.cx + radius * Math.cos(angle), G.cy - radius * Math.sin(angle)];
 }
 
-function arcPath(from, to) {
-  const [x1, y1] = gaugePoint(from, G.r);
-  const [x2, y2] = gaugePoint(to, G.r);
-  return `M${x1},${y1} A${G.r},${G.r} 0 0 1 ${x2},${y2}`;
+/** Arc along the dial between two scale fractions. */
+function arcPath(from, to, radius) {
+  const [x1, y1] = gaugePoint(from, radius);
+  const [x2, y2] = gaugePoint(to, radius);
+  const large = (to - from) * G.sweep > 180 ? 1 : 0;
+  return `M${x1},${y1} A${radius},${radius} 0 ${large} 1 ${x2},${y2}`;
+}
+
+/** A round label step that gives about a dozen labels (100 for a 1200 L scale). */
+function niceStep(rough) {
+  for (const step of [10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 2500, 5000]) {
+    if (step >= rough) {
+      return step;
+    }
+  }
+  return 10000;
 }
 
 /** Point a radial line at `fraction`, or hide it when fraction is null. */
@@ -777,17 +905,28 @@ const STYLES = `
   .banner.bad ha-icon { color: var(--bad); }
   .banner.neutral ha-icon { color: var(--muted); }
 
-  .gauge { width: 100%; max-width: 380px; display: block; margin: 0 auto; touch-action: none; cursor: pointer; user-select: none; }
-  .zone { fill: none; stroke-width: ${G.width}; }
-  .zone.bad { stroke: var(--bad); }
-  .zone.warn { stroke: var(--warn); }
-  .zone.good { stroke: var(--good); }
-  .tick { fill: var(--muted); font-size: 11px; }
-  .needle { stroke: var(--text); stroke-width: 4; stroke-linecap: round; }
-  .estimate-mark { stroke: var(--text); stroke-width: 3; stroke-dasharray: 4 3; opacity: 0.7; }
-  .hub { fill: var(--text); }
-  .gauge-readout { text-align: center; margin-top: 4px; }
-  .hint { color: var(--warn); margin-top: 6px; }
+  /* Dial: layout copied from the physical gauge, colours from the theme
+     (printed scale in the accent colour, like the gauge's blue print). */
+  .gauge { width: 100%; max-width: 460px; display: block; margin: 0 auto; touch-action: none; cursor: pointer; user-select: none; }
+  .tick { stroke: var(--accent); stroke-width: 2.5; }
+  .tick.major { stroke-width: 4; }
+  .label { fill: var(--accent); font-size: 14px; font-weight: 600; text-anchor: middle; dominant-baseline: middle; }
+  .red-zone { fill: none; stroke: var(--bad); stroke-width: 10; opacity: 0.85; }
+  .zero-mark { stroke: var(--bad); stroke-width: 3; }
+  .zero-label { fill: var(--bad); font-size: 13px; font-weight: 700; text-anchor: middle; dominant-baseline: middle; }
+  .tank-text { fill: var(--muted); font-size: 12px; text-anchor: middle; letter-spacing: 0.04em; }
+  .needle { stroke: var(--text); stroke-width: 6; stroke-linecap: round; }
+  .estimate-mark { stroke: var(--text); stroke-width: 3; stroke-dasharray: 4 3; opacity: 0.6; }
+  .hub { fill: var(--panel); stroke: var(--text); stroke-width: 7; }
+  .hub-dot { fill: var(--muted); }
+  .gauge-readout { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 4px; text-align: center; min-height: 48px; }
+  .hint { color: var(--warn); margin-top: 6px; text-align: center; }
+  /* Round +/- buttons, big enough to hit on a phone; no text selection
+     or double-tap zoom while holding. */
+  button.step {
+    width: 44px; height: 44px; border-radius: 50%; padding: 0; flex: none;
+    font-size: 24px; line-height: 1; touch-action: manipulation; user-select: none; -webkit-user-select: none;
+  }
   .big { font-size: 22px; font-weight: 500; }
   .gauge-buttons { display: flex; justify-content: center; gap: 8px; margin: 10px 0 4px; }
   #calibration { text-align: center; margin-top: 8px; }

@@ -97,7 +97,9 @@
           "min_order_l": "Smallest worthwhile order",
           "window_days": "Order window",
           "lookback_days": "Price comparison window",
-          "calibration_enabled": "Learn from needle readings"
+          "calibration_enabled": "Learn from needle readings",
+          "gauge_offset_l": "Gauge offset",
+          "gauge_scale_max": "Gauge scale maximum"
         },
         "data_description": {
           "annual_consumption_l": "Used only until about a year of deliveries (at least 3) is logged; after that the yearly consumption is measured from your deliveries.",
@@ -108,7 +110,9 @@
           "min_order_l": "A good price only triggers advice when the tank has room for at least this much.",
           "window_days": "How long before the order-by date to start looking for a good price.",
           "lookback_days": "Today's price is compared with the average of this many days.",
-          "calibration_enabled": "Adjust the burn rate a little each time a needle reading differs from the estimate."
+          "calibration_enabled": "Adjust the burn rate a little each time a needle reading differs from the estimate.",
+          "gauge_offset_l": "What your physical gauge shows when the tank is empty. The panel subtracts it: real liters = gauge reading - offset.",
+          "gauge_scale_max": "The value printed at the end of your gauge's scale. The panel dial is drawn to match it."
         }
       }
     },

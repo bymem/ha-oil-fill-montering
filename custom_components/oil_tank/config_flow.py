@@ -33,6 +33,8 @@ from .const import (
     CONF_CALIBRATION_ENABLED,
     CONF_CAPACITY_L,
     CONF_FEED_URL,
+    CONF_GAUGE_OFFSET_L,
+    CONF_GAUGE_SCALE_MAX,
     CONF_LEAD_DAYS,
     CONF_LOOKBACK_DAYS,
     CONF_MIN_ORDER_L,
@@ -91,6 +93,8 @@ OPTIONS_SCHEMA = vol.Schema(
         vol.Required(CONF_WINDOW_DAYS): _number(1, 180, 1, "days"),
         vol.Required(CONF_LOOKBACK_DAYS): _number(7, 365, 1, "days"),
         vol.Required(CONF_CALIBRATION_ENABLED): selector.BooleanSelector(),
+        vol.Required(CONF_GAUGE_OFFSET_L): _number(0, 5000, 10, "L"),
+        vol.Required(CONF_GAUGE_SCALE_MAX): _number(100, 20000, 10, "L"),
     }
 )
 
@@ -145,6 +149,8 @@ class OilTankOptionsFlow(OptionsFlowWithReload):
     ) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         current = {**DEFAULTS, **self.config_entry.data, **self.config_entry.options}
+        # The dial's scale defaults to the tank capacity.
+        current[CONF_GAUGE_SCALE_MAX] = current[CONF_GAUGE_SCALE_MAX] or current[CONF_CAPACITY_L]
 
         if user_input is not None:
             # Only re-check the feed when its URL actually changed.

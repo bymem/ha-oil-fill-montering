@@ -34,7 +34,9 @@ Then open **Oil tank** in the sidebar:
 
 Without any history, tracking starts with the first needle reading or the first logged delivery.
 
-Everything else is under Settings → Devices & services → Oil Tank → **Configure**: default yearly consumption (used until enough deliveries are logged), hot-water share, heating limit, delivery time, safety buffer, smallest worthwhile order, order window, price comparison window, and whether needle readings adjust the burn rate. Saving reloads the integration; readings and history are kept.
+**Gauge settings.** The panel dial copies a float gauge and turns the reading into real liters: *real liters = gauge reading − gauge offset*. If your gauge does not show 0 when the tank is empty (for example it shows 200), set **Gauge offset** to that value, and **Gauge scale maximum** to the number printed at the end of its scale. The needle then simply copies what you see on the tank; the panel shows the real liters below the dial.
+
+Everything else is under Settings → Devices & services → Oil Tank → **Configure**: gauge offset and scale, default yearly consumption (used until enough deliveries are logged), hot-water share, heating limit, delivery time, safety buffer, smallest worthwhile order, order window, price comparison window, and whether needle readings adjust the burn rate. Saving reloads the integration; readings and history are kept.
 
 ## Entities
 
