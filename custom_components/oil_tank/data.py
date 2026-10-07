@@ -7,14 +7,9 @@ from dataclasses import dataclass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.util import dt as dt_util
 
-from .const import (
-    DEFAULT_BUFFER_DAYS,
-    DEFAULT_LEAD_DAYS,
-    DEFAULT_MIN_ORDER_L,
-    DEFAULT_WINDOW_DAYS,
-)
 from .coordinator import OilTankCoordinator
 from .decision import Decision, decide
+from .settings import Settings
 from .tank import TankManager
 
 
@@ -22,6 +17,7 @@ from .tank import TankManager
 class OilTankData:
     """Everything the platforms and services need for the one config entry."""
 
+    settings: Settings
     coordinator: OilTankCoordinator
     tank: TankManager
 
@@ -35,10 +31,10 @@ class OilTankData:
             capacity_l=self.tank.capacity_l,
             today=dt_util.now().date(),
             stats=prices.stats if prices else None,
-            lead_days=DEFAULT_LEAD_DAYS,
-            buffer_days=DEFAULT_BUFFER_DAYS,
-            min_order_l=DEFAULT_MIN_ORDER_L,
-            window_days=DEFAULT_WINDOW_DAYS,
+            lead_days=self.settings.lead_days,
+            buffer_days=self.settings.buffer_days,
+            min_order_l=self.settings.min_order_l,
+            window_days=self.settings.window_days,
         )
 
 

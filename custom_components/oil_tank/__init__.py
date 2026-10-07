@@ -16,8 +16,6 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 
 from .const import (
-    CONF_CAPACITY_L,
-    CONF_TEMPERATURE_ENTITY,
     DOMAIN,
     PANEL_ICON,
     PANEL_STATIC_URL,
@@ -28,6 +26,7 @@ from .const import (
 from .coordinator import OilTankCoordinator
 from .data import OilTankConfigEntry, OilTankData
 from .services import async_register_services, async_remove_services
+from .settings import Settings
 from .storage import OilTankStore
 from .tank import TankManager
 from .websocket_api import async_register_commands
@@ -42,19 +41,19 @@ _REGISTERED_ONCE = f"{DOMAIN}_registered_once"
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: OilTankConfigEntry) -> bool:
-    """Set up Oil Tank from a config entry."""
-    coordinator = OilTankCoordinator(hass, entry)
+    """Set up Oil Tank from a config entry.
+
+    Option changes reload the entry (OptionsFlowWithReload), so settings are
+    read once here.
+    """
+    settings = Settings.from_entry(entry)
+    coordinator = OilTankCoordinator(hass, entry, settings)
     # Plain refresh, not first_refresh: a dead feed must not block setup.
     await coordinator.async_refresh()
 
-    tank = TankManager(
-        hass,
-        OilTankStore(hass),
-        capacity_l=float(entry.data[CONF_CAPACITY_L]),
-        temperature_entity=entry.data[CONF_TEMPERATURE_ENTITY],
-    )
+    tank = TankManager(hass, OilTankStore(hass), settings)
     await tank.async_start()
-    entry.runtime_data = OilTankData(coordinator=coordinator, tank=tank)
+    entry.runtime_data = OilTankData(settings=settings, coordinator=coordinator, tank=tank)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     async_register_services(hass, tank)

@@ -23,7 +23,7 @@ from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 from . import csv_io, model
-from .const import DEFAULT_BUFFER_DAYS, DEFAULT_LEAD_DAYS
+from .settings import Settings
 from .storage import OilTankStore
 
 TICK_INTERVAL = timedelta(minutes=10)
@@ -52,14 +52,16 @@ class TankManager:
         self,
         hass: HomeAssistant,
         store: OilTankStore,
-        capacity_l: float,
-        temperature_entity: str,
+        settings: Settings,
     ) -> None:
         self.hass = hass
         self.store = store
-        self.capacity_l = capacity_l
-        self.temperature_entity = temperature_entity
-        self.rates = model.make_rates()
+        self.settings = settings
+        self.capacity_l = settings.capacity_l
+        self.temperature_entity = settings.temperature_entity
+        self.rates = model.make_rates(
+            settings.annual_consumption_l, settings.base_load_share, settings.base_temp_c
+        )
         self.snapshot = TankSnapshot(None, None, None, None)
         self._listeners: list[Callable[[], None]] = []
         self._unsubscribers: list[Callable[[], None]] = []
@@ -187,7 +189,7 @@ class TankManager:
                 level_percent=level / self.capacity_l * 100,
                 days_remaining=remaining,
                 order_by=model.order_by_date(
-                    remaining, today, DEFAULT_LEAD_DAYS, DEFAULT_BUFFER_DAYS
+                    remaining, today, self.settings.lead_days, self.settings.buffer_days
                 ),
             )
         for listener in list(self._listeners):
@@ -260,9 +262,12 @@ class TankManager:
             ).total_seconds() / SECONDS_PER_DAY
             predicted = self._burn_since_baseline()
             actual = baseline["liters"] + delivered_l - reading_l
-            self.data["scale"] = model.calibrate(
-                self.data["scale"], predicted, actual, interval_days
-            )
+            # With learning switched off the correction is still shown, the
+            # burn-rate scale just stays where it is.
+            if self.settings.calibration_enabled:
+                self.data["scale"] = model.calibrate(
+                    self.data["scale"], predicted, actual, interval_days
+                )
             self.data["last_calibration"] = {
                 "ts": dt_util.utcnow().isoformat(),
                 "estimated_l": round(self.estimate_l() + delivered_l, 1),

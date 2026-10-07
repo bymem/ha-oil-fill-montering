@@ -88,9 +88,12 @@ class OilTankPriceSensor(CoordinatorEntity[OilTankCoordinator], SensorEntity):
 
 
 class LevelSensor(TankEntity, SensorEntity):
-    """Estimated liters left; unknown until the first needle reading."""
+    """Estimated liters left; unknown until the first needle reading.
 
-    _attr_device_class = SensorDeviceClass.VOLUME_STORAGE
+    No volume device class on purpose: it would let Home Assistant convert the
+    level to gallons on US-unit systems, and a tank gauge is read in liters.
+    """
+
     _attr_native_unit_of_measurement = UnitOfVolume.LITERS
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_suggested_display_precision = 0

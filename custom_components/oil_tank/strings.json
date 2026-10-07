@@ -8,6 +8,11 @@
           "capacity_l": "Tank capacity",
           "temperature_entity": "Outdoor temperature sensor",
           "feed_url": "Price feed URL"
+        },
+        "data_description": {
+          "capacity_l": "Total tank size in liters. Can be changed later.",
+          "temperature_entity": "An outdoor temperature sensor. Used to estimate how much oil is burned each day.",
+          "feed_url": "The supplier's daily price feed. Keep the default unless the supplier changes it."
         }
       }
     },
@@ -70,6 +75,43 @@
           "description": "Liters in the tank after the delivery, if known. Used as a calibration point."
         }
       }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Oil tank settings",
+        "description": "Saving reloads the integration. Your readings and fill history are kept.",
+        "data": {
+          "capacity_l": "Tank capacity",
+          "temperature_entity": "Outdoor temperature sensor",
+          "feed_url": "Price feed URL",
+          "annual_consumption_l": "Typical yearly consumption",
+          "base_load_share": "Share of oil not used for space heating",
+          "base_temp_c": "Heating limit",
+          "lead_days": "Delivery time",
+          "buffer_days": "Safety buffer",
+          "min_order_l": "Smallest worthwhile order",
+          "window_days": "Order window",
+          "lookback_days": "Price comparison window",
+          "calibration_enabled": "Learn from needle readings"
+        },
+        "data_description": {
+          "annual_consumption_l": "Liters burned in a normal year. Sets the starting burn rate.",
+          "base_load_share": "Hot water and other use that does not depend on the weather, as a fraction (0.2 = 20%).",
+          "base_temp_c": "Outdoor temperature above which the house needs no heating.",
+          "lead_days": "Calendar days from ordering until the oil arrives.",
+          "buffer_days": "Days of oil that should still be left when the delivery arrives.",
+          "min_order_l": "A good price only triggers advice when the tank has room for at least this much.",
+          "window_days": "How long before the order-by date to start looking for a good price.",
+          "lookback_days": "Today's price is compared with the average of this many days.",
+          "calibration_enabled": "Adjust the burn rate a little each time a needle reading differs from the estimate."
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not reach the price feed. Check the URL and your internet connection.",
+      "invalid_feed": "The price feed answered, but its content is not in the expected format."
     }
   }
 }
