@@ -3,7 +3,7 @@
 from datetime import date, timedelta
 
 import pytest
-from model import (
+from oil_tank.model import (
     DAYS_IN_MONTH,
     accumulate_dd,
     annual_normal_dd,

@@ -21,9 +21,8 @@ LOG_FILL_SCHEMA = vol.Schema(
         vol.Required("liters"): vol.Coerce(float),
         vol.Required("price"): vol.Coerce(float),
         vol.Optional("date"): cv.date,
-        vol.Optional("level_after_percent"): vol.All(
-            vol.Coerce(float), vol.Range(min=0, max=100)
-        ),
+        # Upper bound (tank capacity) is checked by the tank manager.
+        vol.Optional("level_after_liters"): vol.All(vol.Coerce(float), vol.Range(min=0)),
     }
 )
 
@@ -37,7 +36,7 @@ def async_register_services(hass: HomeAssistant, tank: TankManager) -> None:
                 liters=call.data["liters"],
                 price=call.data["price"],
                 fill_date=call.data.get("date"),
-                level_after_percent=call.data.get("level_after_percent"),
+                level_after_liters=call.data.get("level_after_liters"),
             )
         except TankError as err:
             raise ServiceValidationError(str(err)) from err

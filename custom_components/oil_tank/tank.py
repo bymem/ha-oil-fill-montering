@@ -23,13 +23,10 @@ from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 from . import model
+from .const import DEFAULT_BUFFER_DAYS, DEFAULT_LEAD_DAYS
 from .storage import OilTankStore
 
 TICK_INTERVAL = timedelta(minutes=10)
-
-# Recommendation settings (spec section 7); configurable from M5.
-LEAD_DAYS = 5
-BUFFER_DAYS = 14
 
 SECONDS_PER_DAY = 86400
 
@@ -189,18 +186,20 @@ class TankManager:
                 level_l=level,
                 level_percent=level / self.capacity_l * 100,
                 days_remaining=remaining,
-                order_by=model.order_by_date(remaining, today, LEAD_DAYS, BUFFER_DAYS),
+                order_by=model.order_by_date(
+                    remaining, today, DEFAULT_LEAD_DAYS, DEFAULT_BUFFER_DAYS
+                ),
             )
         for listener in list(self._listeners):
             listener()
 
     # --- User actions -------------------------------------------------------
 
-    async def async_set_level_percent(self, percent: float) -> None:
+    async def async_set_level_liters(self, liters: float) -> None:
         """Record a needle reading."""
-        if not 0 <= percent <= 100:
-            raise TankError("Level must be between 0 and 100%")
-        self._record_reading(self.capacity_l * percent / 100, delivered_l=0.0)
+        if not 0 <= liters <= self.capacity_l:
+            raise TankError(f"Level must be between 0 and {self.capacity_l:g} L")
+        self._record_reading(liters, delivered_l=0.0)
         await self._saved()
 
     async def async_log_fill(
@@ -208,7 +207,7 @@ class TankManager:
         liters: float,
         price: float,
         fill_date: date | None = None,
-        level_after_percent: float | None = None,
+        level_after_liters: float | None = None,
     ) -> None:
         """Record a delivery and update the estimate (spec FR-4)."""
         today = dt_util.now().date()
@@ -219,8 +218,10 @@ class TankManager:
             raise TankError("Price cannot be negative")
         if fill_date > today:
             raise TankError("Date cannot be in the future")
-        if level_after_percent is not None and not 0 <= level_after_percent <= 100:
-            raise TankError("Level after delivery must be between 0 and 100%")
+        if level_after_liters is not None and not 0 <= level_after_liters <= self.capacity_l:
+            raise TankError(
+                f"Level after delivery must be between 0 and {self.capacity_l:g} L"
+            )
         key = (fill_date.isoformat(), round(liters, 1))
         if any((fill["date"], round(fill["liters"], 1)) == key for fill in self.data["fills"]):
             raise TankError(f"A delivery of {liters:g} L on {fill_date} already exists")
@@ -240,11 +241,9 @@ class TankManager:
             datetime.fromisoformat(baseline["ts"])
         ).date()
 
-        if after_reading and level_after_percent is not None:
+        if after_reading and level_after_liters is not None:
             # The level after delivery is a calibration point.
-            self._record_reading(
-                self.capacity_l * level_after_percent / 100, delivered_l=liters
-            )
+            self._record_reading(level_after_liters, delivered_l=liters)
         elif after_reading and baseline is not None:
             # No reading given: re-base on the estimate plus the delivery.
             self._set_baseline(min(self.capacity_l, (self.estimate_l() or 0) + liters))

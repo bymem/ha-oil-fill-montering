@@ -4,7 +4,7 @@ from datetime import date
 
 import pytest
 from conftest import FIXTURES
-from feed import FeedError, parse_feed
+from oil_tank.feed import FeedError, parse_feed
 
 
 def test_parses_real_feed_sorted():

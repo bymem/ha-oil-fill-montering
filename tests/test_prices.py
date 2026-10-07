@@ -4,8 +4,8 @@ from datetime import date, timedelta
 
 import pytest
 from conftest import FIXTURES
-from feed import parse_feed
-from prices import price_stats
+from oil_tank.feed import parse_feed
+from oil_tank.prices import price_stats
 
 TODAY = date(2026, 10, 7)
 

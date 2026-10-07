@@ -20,6 +20,11 @@
     }
   },
   "entity": {
+    "binary_sensor": {
+      "order_recommended": {
+        "name": "Order recommended"
+      }
+    },
     "number": {
       "tank_level_needle": {
         "name": "Tank level needle"
@@ -60,9 +65,9 @@
           "name": "Date",
           "description": "Delivery date. Defaults to today."
         },
-        "level_after_percent": {
+        "level_after_liters": {
           "name": "Level after delivery",
-          "description": "Gauge reading after the delivery, if known. Used as a calibration point."
+          "description": "Liters in the tank after the delivery, if known. Used as a calibration point."
         }
       }
     }

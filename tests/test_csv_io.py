@@ -3,7 +3,7 @@
 from datetime import date
 
 from conftest import FIXTURES
-from csv_io import Fill, export_csv, merge, parse_csv, parse_date, parse_number
+from oil_tank.csv_io import Fill, export_csv, merge, parse_csv, parse_date, parse_number
 
 
 def test_sample_file():

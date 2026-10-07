@@ -1,6 +1,8 @@
 # Oil Tank for Home Assistant - Specification
 
-Status: draft for sign-off. Version 0.2 of this document, 2026-10-07.
+Status: draft for sign-off. Version 0.3 of this document, 2026-10-07.
+
+Changes in 0.3: the needle (number entity, panel gauge, websocket `set_level`) and the fill-up "level after delivery" field use liters instead of percent; the needle moves in 10 L steps.
 
 Changes in 0.2: distributed through HACS from a public repository; the fill history is no longer bundled with the integration and is imported through the panel instead; the real fill history is replaced by synthetic sample data in this document and in the tests; integration with its own panel confirmed.
 
@@ -114,13 +116,13 @@ Build something for Home Assistant that:
 3. Expose liters, percent of capacity, days of oil left, and the order-by date.
 
 ### FR-3 Needle (manual level reading)
-1. In the panel: a semicircular gauge, 0% at the left, 100% at the right, with a draggable needle. Dragging does **not** save; a Save button records the reading and a Cancel button discards it.
+1. In the panel: a semicircular gauge in liters, 0 L at the left, tank capacity at the right, with a draggable needle. Dragging does **not** save; a Save button records the reading and a Cancel button discards it.
 2. While dragging, show the model's current estimate as a secondary marker so the person sees how far off the model was.
-3. Also available as a Home Assistant `number` entity (slider, 0-100%, step 1) whose state is the current estimate and whose write records a reading, so it can be used on dashboards and in automations.
+3. Also available as a Home Assistant `number` entity (slider, 0 to capacity in liters, step 10 L) whose state is the current estimate and whose write records a reading, so it can be used on dashboards and in automations.
 4. Recording a reading: store `{time, liters, degree-day counter}` as the new baseline and (if enough time has passed) nudge the burn-rate scale (section 6.4).
 
 ### FR-4 Fill-up logging
-1. Panel form: date (default today, not in the future), liters, total price (DKK), optional "tank level after delivery (%)". Also a service `oil_tank.log_fill`. **CONFIRMED** (form with date/liters/price; the level-after field is PROPOSED).
+1. Panel form: date (default today, not in the future), liters, total price (DKK), optional "tank level after delivery (L)". Also a service `oil_tank.log_fill`. **CONFIRMED**.
 2. Rejected: duplicate (same date and liters), non-positive liters, negative price, future date.
 3. Effect on the estimate:
    * with "level after" given: that value is recorded as a reading (a calibration point) and the delivered liters are accounted for in the learning step;
@@ -297,13 +299,13 @@ Setup validates the feed (reachable and parseable) and shows a clear error other
 | `sensor.oil_tank_level_percent` | percent of capacity |
 | `sensor.oil_tank_days_remaining` | days (duration device class) |
 | `sensor.oil_tank_order_by` | date device class |
-| `number.oil_tank_tank_level_needle` | slider 0-100%, state = estimate, write = record a reading |
+| `number.oil_tank_tank_level_needle` | slider 0 to capacity in liters, step 10 L; state = estimate, write = record a reading |
 | `binary_sensor.oil_tank_order_recommended` | attributes: `reason`, `urgent`, `order_by`, `days_remaining`, `level_liters`, `level_percent`, `price_per_l`, `percent_vs_average` |
 
 Entities refresh every 10 minutes and immediately after any user action.
 
 ### 9.3 Services
-* `oil_tank.log_fill` - `liters` (required), `price` (required), `date` (optional, default today in the HA time zone), `level_after_percent` (optional).
+* `oil_tank.log_fill` - `liters` (required), `price` (required), `date` (optional, default today in the HA time zone), `level_after_liters` (optional, 0 to capacity).
 
 ### 9.4 Websocket commands (used by the panel, available to any logged-in user)
 
@@ -311,8 +313,8 @@ Entities refresh every 10 minutes and immediately after any user action.
 | --- | --- | --- |
 | `oil_tank/get_state` | - | state object (capacity, level, percent, days left, order-by, recommendation, price stats, fills newest-first, scale, last calibration, `prices_version`) |
 | `oil_tank/get_prices` | - | `{prices: [[iso_date, price_per_1000_l], ...]}` |
-| `oil_tank/set_level` | `percent` 0-100 | new state |
-| `oil_tank/log_fill` | `date` (ISO), `liters`, `price`, optional `level_after_percent` | new state, or an error with a readable message |
+| `oil_tank/set_level` | `liters` 0 to capacity | new state |
+| `oil_tank/log_fill` | `date` (ISO), `liters`, `price`, optional `level_after_liters` | new state, or an error with a readable message |
 | `oil_tank/delete_fill` | **`fill_id`** | new state |
 | `oil_tank/import_csv` | `text` (max 1 MB) | `{added, skipped, errors[]}` |
 | `oil_tank/export_csv` | - | `{text}` |
@@ -323,10 +325,10 @@ Entities refresh every 10 minutes and immediately after any user action.
 Plain custom element (web component), **no build step**, served from the integration folder as a static file, registered as a custom sidebar panel (`require_admin: false`), icon `mdi:barrel`. Uses Home Assistant theme CSS variables so it follows light/dark themes. Responsive down to phone width. All text inserted into the page is escaped.
 
 1. **Banner**: title "Order now" (urgent), "Good time to order" or "No action needed", plus the `reason` text. Colour-coded.
-2. **Gauge**: SVG semicircle, red zone 0-15%, amber 15-30%, green 30-100%. The needle is draggable by pointer or touch; the percent is rounded to an integer; dragging below the horizon snaps to the nearest end. While dragging show liters and "(not saved yet)", the dashed estimate marker, and Save/Cancel. Under the gauge: "Last reading: the model said X L, you set Y L". With no baseline: "Set the needle" and no needle drawn.
+2. **Gauge**: SVG semicircle labelled in liters (0 to capacity), red zone 0-15% of capacity, amber 15-30%, green 30-100%. The needle is draggable by pointer or touch; the value snaps to 10 L steps; dragging below the horizon snaps to the nearest end. While dragging show liters and "(not saved yet)", the dashed estimate marker, and Save/Cancel. Under the gauge: "Last reading: the model said X L, you set Y L". With no baseline: "Set the needle" and no needle drawn.
 3. **Outlook**: days of oil left, order-by date, today's price with a chip showing percent vs the average (green at or below -3%, red at or above +3%), window range, price date (flag if older than 2 days), burn-rate factor.
 4. **Price chart**: SVG line of the list price per liter. Range buttons 3 months / 1 year / all. Dashed horizontal line for the window average. A dot and faint vertical line for each of the owner's fills that fall inside the range. Hover shows the date and price. Refetch prices only when `prices_version` changes.
-5. **Fill-up form**: date, liters, total price, optional level after (%), live "= x.xx kr/L". Success and error toasts. The form is not cleared by the 60-second state refresh.
+5. **Fill-up form**: date, liters, total price, optional level after (L), live "= x.xx kr/L". Success and error toasts. The form is not cleared by the 60-second state refresh.
 6. **History**: table newest first (date, liters, paid, kr/L, delete with confirmation) plus Import CSV and Export CSV.
 7. The panel polls `get_state` every 60 seconds and after every action; it must never wipe half-typed form input on refresh.
 

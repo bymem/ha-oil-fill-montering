@@ -1,8 +1,8 @@
 """Oil Tank integration.
 
 Price feed coordinator, level tracking (tank manager), sensors, the needle
-number entity, the log_fill service and a placeholder sidebar panel.
-Recommendation and the real panel come in later milestones.
+number entity, the order recommendation, the log_fill service and a
+placeholder sidebar panel. The real panel comes in a later milestone.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from .services import async_register_services, async_remove_services
 from .storage import OilTankStore
 from .tank import TankManager
 
-PLATFORMS = [Platform.NUMBER, Platform.SENSOR]
+PLATFORMS = [Platform.BINARY_SENSOR, Platform.NUMBER, Platform.SENSOR]
 
 PANEL_JS_PATH = Path(__file__).parent / "frontend" / "oil-tank-panel.js"
 

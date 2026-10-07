@@ -14,6 +14,7 @@ from homeassistant.const import PERCENTAGE, UnitOfTime, UnitOfVolume
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
 from .coordinator import OilTankCoordinator
 from .data import OilTankConfigEntry
@@ -81,7 +82,8 @@ class OilTankPriceSensor(CoordinatorEntity[OilTankCoordinator], SensorEntity):
             "high_per_l": round(stats.high / 1000, 4),
             "percent_vs_average": round(stats.percent_vs_average, 2),
             "lowest_in_window": stats.lowest_in_window,
-            "age_days": stats.age_days,
+            # From today, not the last fetch, so a dead feed shows its age.
+            "age_days": (dt_util.now().date() - stats.price_date).days,
         }
 
 

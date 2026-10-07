@@ -22,12 +22,12 @@ log_fill:
       required: false
       selector:
         date:
-    level_after_percent:
+    level_after_liters:
       required: false
       selector:
         number:
           min: 0
-          max: 100
-          step: 1
-          unit_of_measurement: "%"
-          mode: slider
+          max: 20000
+          step: 10
+          unit_of_measurement: L
+          mode: box
