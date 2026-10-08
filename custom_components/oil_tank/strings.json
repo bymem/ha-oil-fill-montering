@@ -99,7 +99,9 @@
           "lookback_days": "Price comparison window",
           "calibration_enabled": "Learn from needle readings",
           "gauge_offset_l": "Gauge offset",
-          "gauge_scale_max": "Gauge scale maximum"
+          "gauge_scale_max": "Gauge scale maximum",
+          "stock_up_percent": "Stock-up discount",
+          "stock_up_days": "Stock-up comparison window"
         },
         "data_description": {
           "annual_consumption_l": "Used only until about a year of deliveries (at least 3) is logged; after that the yearly consumption is measured from your deliveries.",
@@ -112,7 +114,9 @@
           "lookback_days": "Today's price is compared with the average of this many days.",
           "calibration_enabled": "Adjust the burn rate a little each time a needle reading differs from the estimate.",
           "gauge_offset_l": "What your physical gauge shows when the tank is empty. The panel subtracts it: real liters = gauge reading - offset.",
-          "gauge_scale_max": "The value printed at the end of your gauge's scale. The panel dial is drawn to match it."
+          "gauge_scale_max": "The value printed at the end of your gauge's scale. The panel dial is drawn to match it.",
+          "stock_up_percent": "Order at any time, even far from the order-by date, when the price is at least this much below its long-term average and the tank has room for the smallest worthwhile order.",
+          "stock_up_days": "The long-term average for the stock-up rule is taken over this many days."
         }
       }
     },

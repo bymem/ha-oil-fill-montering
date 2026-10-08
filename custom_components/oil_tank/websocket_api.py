@@ -13,7 +13,9 @@ import voluptuous as vol
 
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.util import dt as dt_util
 
+from . import model
 from .const import DOMAIN
 from .data import OilTankData
 from .tank import TankError
@@ -32,6 +34,7 @@ def async_register_commands(hass: HomeAssistant) -> None:
         ws_delete_fill,
         ws_import_csv,
         ws_export_csv,
+        ws_predict,
     ):
         websocket_api.async_register_command(hass, command)
 
@@ -61,6 +64,11 @@ def _state(runtime: OilTankData) -> dict[str, Any]:
             "percent_vs_average": stats.percent_vs_average,
             "lowest_in_window": stats.lowest_in_window,
             "lookback_days": stats.lookback_days,
+            "stock_up_days": coordinator.data.stock_up_stats.lookback_days,
+            "stock_up_average_per_l": coordinator.data.stock_up_stats.average / 1000,
+            "percent_vs_stock_up_average": coordinator.data.stock_up_stats.percent_vs_average,
+            "trend_percent": coordinator.data.trend_percent,
+            "stock_up_percent": runtime.settings.stock_up_percent,
         }
 
     return {
@@ -208,6 +216,52 @@ async def ws_import_csv(
         return connection.send_error(msg["id"], "invalid", "File is larger than 1 MB")
     result = await runtime.tank.async_import_csv(msg["text"])
     connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/predict",
+        vol.Required("liters"): vol.All(vol.Coerce(float), vol.Range(min=0)),
+    }
+)
+@callback
+def ws_predict(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """If `liters` were ordered today: level after delivery and the next order-by date."""
+    if (runtime := _runtime(hass)) is None:
+        return _not_loaded(connection, msg)
+    tank = runtime.tank
+    level = tank.snapshot.level_l
+    if level is None:
+        return connection.send_error(msg["id"], "invalid", "Set the tank level first")
+    settings = runtime.settings
+    result = model.predict_order(
+        level_l=level,
+        ordered_l=msg["liters"],
+        today=dt_util.now().date(),
+        capacity_l=tank.capacity_l,
+        rates=tank.rates,
+        scale=tank.data["scale"],
+        lead_days=settings.lead_days,
+        buffer_days=settings.buffer_days,
+        window_days=settings.window_days,
+    )
+    prices = runtime.coordinator.data
+    connection.send_result(
+        msg["id"],
+        {
+            "delivery_date": result.delivery_date.isoformat(),
+            "level_before_l": result.level_before_l,
+            "room_l": result.room_l,
+            "ordered_l": result.ordered_l,
+            "level_after_l": result.level_after_l,
+            "days_left": result.days_left,
+            "order_by": result.order_by.isoformat(),
+            "window_start": result.window_start.isoformat(),
+            "price_per_l": prices.stats.price / 1000 if prices else None,
+        },
+    )
 
 
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/export_csv"})

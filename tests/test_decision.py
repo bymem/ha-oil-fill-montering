@@ -116,3 +116,56 @@ def test_worked_example_on_real_data(level, start, order_by):
     assert result.order is False
     assert result.reason.startswith(start)
     assert result.order_by == order_by
+
+
+def _stock(percent, age=0):
+    """90-day stats for the stock-up tier."""
+    stats = _stats(percent=percent, age=age)
+    return PriceStats(**{**stats.__dict__, "lookback_days": 90})
+
+
+def test_stock_up_any_time_with_room():
+    # Far from the order-by date (no need yet), but 7.5% below the 90-day average.
+    result = decide(
+        level_l=400, days_remaining=200, capacity_l=1200, today=TODAY, stats=_stats(),
+        stock_up_stats=_stock(-7.5), stock_up_percent=7, **SETTINGS,
+    )
+    assert result.order is True and result.urgent is False
+    assert result.reason.startswith("Unusually cheap")
+    assert "7.5% below the 90-day average" in result.reason
+    assert "room for 800 L" in result.reason
+
+
+@pytest.mark.parametrize(
+    ("level", "stock"),
+    [(800, _stock(-10)), (400, _stock(-6.9)), (400, _stock(-10, age=4))],
+    ids=["no room", "not cheap enough", "stale price"],
+)
+def test_stock_up_does_not_fire(level, stock):
+    result = decide(
+        level_l=level, days_remaining=200, capacity_l=1200, today=TODAY, stats=_stats(),
+        stock_up_stats=stock, stock_up_percent=7, **SETTINGS,
+    )
+    assert result.order is False
+
+
+def test_urgent_wins_over_stock_up():
+    result = decide(
+        level_l=100, days_remaining=10, capacity_l=1200, today=TODAY, stats=_stats(),
+        stock_up_stats=_stock(-10), stock_up_percent=7, **SETTINGS,
+    )
+    assert result.urgent is True
+
+
+def test_stock_up_catches_june_2026_dip():
+    """Backtest case: 18 June 2026, 19.02 kr/L, more than 7% below the 90-day average."""
+    prices = parse_feed((FIXTURES / "feed_2026-10-07.json").read_text())
+    day = date(2026, 6, 18)
+    upto = [p for p in prices if p[0] <= day]
+    result = decide(
+        level_l=600, days_remaining=150, capacity_l=1225, today=day,
+        stats=price_stats(upto, day, 30), stock_up_stats=price_stats(upto, day, 90),
+        stock_up_percent=7, **SETTINGS,
+    )
+    assert result.order is True
+    assert result.reason.startswith("Unusually cheap: 19.02 kr/L")

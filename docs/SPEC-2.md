@@ -1,6 +1,8 @@
 # Oil Tank for Home Assistant - Specification
 
-Status: draft for sign-off. Version 0.5 of this document, 2026-10-07.
+Status: draft for sign-off. Version 0.6 of this document, 2026-10-07.
+
+Changes in 0.6: Outlook regrouped (tank, usage) and price details moved into a redesigned price card; a "Predict an order" modal (FR-9); a second, "stock up" tier in the recommendation (unusually cheap against a 90-day average and room in the tank, at any time); a 14-day price trend shown for information only. Both chosen from a 2-year backtest (section 7.1).
 
 Changes in 0.5: the panel dial copies the household's physical gauge (Titan R1225 float gauge) and maps its reading to real liters with a configurable offset (`gauge_offset_l`, `gauge_scale_max`); the outlook shows the liters in the tank.
 
@@ -150,6 +152,9 @@ A sidebar entry "Oil tank" containing: recommendation banner, gauge/needle, outl
 ### FR-8 Configuration
 Setup screen: tank capacity (default 1,200 L), outdoor temperature sensor, feed URL. Options screen: all of those plus the tuning values in section 8. Changing options reloads the integration. **CONFIRMED** for capacity and temperature sensor; the rest PROPOSED.
 
+### FR-9 Predict an order
+A **Predict** button in the Outlook header opens a modal: enter liters to order (prefilled with the current room in the tank) and see, without saving anything: the level after delivery (delivery assumed after `lead_days`, burn until then on normal temperatures, capped at capacity with a warning when it does not fit), the next order-by date, when price watching starts (order-by minus `window_days`), and the cost at today's price. Websocket `oil_tank/predict` {`liters`}. The modal is not touched by the 60-second refresh; Esc, the close button or a click outside closes it.
+
 ---
 
 ## 5. Estimation of consumption
@@ -254,6 +259,8 @@ room       = capacity - level
 1. no level yet                         -> order=false  "Set the tank level (needle) to start tracking."
 2. slack <= 0                           -> order=TRUE, urgent   "Order now: about N days of oil left and delivery takes ~L days."
 3. room < min_order                     -> false        "Tank has room for only R L (minimum order M L). Order by D."
+3a. stock up: fresh price and percent vs the stock_up_days average <= -stock_up_percent
+                                        -> order=TRUE   "Unusually cheap: P kr/L is X% below the N-day average, and the tank has room for R L. Order by D."
 4. slack > window_days                  -> false        "No need yet: order by D (about N days of oil left)."
 5. no price data or price stale (>3 d)  -> false        "No fresh price data. Order by D."
 6. good price:
@@ -264,7 +271,10 @@ room       = capacity - level
 7. otherwise                            -> false        "Waiting for a better price (P kr/L, +x% vs average). Order by D."
 ```
 
-The checks run in that order, first match wins. The urgent case ignores price entirely.
+The checks run in that order, first match wins. The urgent case ignores price entirely. Rule 3a ("stock up") is the only price rule that applies outside the order window: it is how cheap periods far from the order-by date (for example a summer dip) get used.
+
+### 7.1 Why these rules (backtest, 2026-10-07)
+Replayed on the 2-year price feed with the household's real consumption (1,770 L/year), orders of at least 500 L, starting from the level reconstructed from the empty tank of 2018-04-25. Effective cost (kr/L including the stock left at the end): the household's actual orders 18.77; current rules (window only) 18.14; same price rules without a window 17.67; **two tiers (stock up at >= 7% below the 90-day average + the window rules) 17.64**. Lowering the price thresholds does not create more orders (tank room limits them) and makes it worse. A "prices are rising" order rule did not help (rises come as jumps; once a 7- or 14-day average shows them, buying tends to happen near the top), so the trend is shown for information only. The stock-up rule fired once in the two years (2026-06-18 at 19.02, two days before the 18.82 low), so its threshold was taken from the middle of the stable range (5-8 %, 60-90 days), not the single best cell.
 
 Defaults: `lead_days` 5 (3 working days plus weekend slack), `buffer_days` 14, `min_order_l` 500, `window_days` 45, `lookback_days` 30.
 
@@ -296,6 +306,8 @@ Note for the owner: because the tank is small compared with winter burn (about 8
 | `min_order_l` | 500 | options | smallest worthwhile order |
 | `window_days` | 45 | options | how long before the order-by date to look for a good price |
 | `lookback_days` | 30 | options | price comparison window |
+| `stock_up_percent` | 7 | options | stock-up tier: percent below the long-term average |
+| `stock_up_days` | 90 | options | stock-up tier: days in the long-term average |
 | `gauge_offset_l` | 0 | options | what the physical gauge reads when the tank is empty |
 | `gauge_scale_max` | capacity | options | value printed at the end of the physical gauge's scale |
 
@@ -348,8 +360,8 @@ Plain custom element (web component), **no build step**, served from the integra
 
 1. **Banner**: title "Order now" (urgent), "Good time to order" or "No action needed", plus the `reason` text. Colour-coded.
 2. **Gauge**: SVG copy of the physical dial (no frame, as large as the card allows): 200 degree arc from just below horizontal on the left over the top to just below horizontal on the right, labels every 100 (scaled for other sizes) with minor ticks at the halves, "L" after the last label, red zone up to the offset (at least 15% of the scale), and a "0" marker at the offset where the gauge sits when empty. Colours follow the theme (printed scale in the accent colour). The needle is draggable by pointer or touch; the reading snaps to steps of 10; outside the arc it snaps to the nearest end. Below the dial: "390 L · gauge 590", or "1,150 L · gauge at its stop" above the scale. While editing the big number is the gauge reading ("620") with "= 420 L · not saved yet" under it, so it can be matched against the real gauge directly. While editing also show the dashed estimate marker and Save/Cancel. Editing starts by dragging, or with an **Adjust** button that starts from the current needle position without moving it. While editing, round **−** and **+** buttons either side of the readout move the reading by 10 per press and repeat while held. Under the gauge: "Last reading: the model said X L, you set Y L". With no baseline: "Set the needle" and no needle drawn.
-3. **Outlook**: liters in the tank, days of oil left, order-by date, burn per day at the current outdoor temperature, burn per year (`annual_l × scale`, with its source), today's price with a chip showing percent vs the average (green at or below -3%, red at or above +3%), window range, price date (flag if older than 2 days), burn-rate factor.
-4. **Price chart**: SVG line of the list price per liter. Range buttons 3 months / 1 year / all. Dashed horizontal line for the window average. A dot and faint vertical line for each of the owner's fills that fall inside the range. Hover shows the date and price. Refetch prices only when `prices_version` changes.
+3. **Outlook**: two groups, each one big number plus one line of detail. *Tank*: days of oil left, liters in the tank, order-by date. *Usage*: burn per day at the current outdoor temperature, burn per year with its source (deliveries or default), burn-rate factor. A **Predict** button in the header (FR-9). Price details live in the price card.
+4. **Price card**: the newest price large, the change since the previous price day (green down, red up), the date it was updated (flagged when older than 2 days), and chips for percent vs the 30-day average (green at or below -3%, red at or above +3%), percent vs the stock-up average (green at or below the stock-up discount) and the 14-day trend (information only). Below: an area chart of the list price per liter with range buttons 3M / 1Y / All (pill switch), a dashed 30-day average line, high and low labels, a marker on the newest price, a dot for each of the owner's fills in range, and a floating tooltip on hover or touch. The chart is drawn at the card's pixel width so text stays readable on a phone. Under the chart: 30-day low, average and high, and the stock-up average. Refetch prices only when `prices_version` changes.
 5. **Fill-up form**: date, liters, total price, optional level after (L), live "= x.xx kr/L". Success and error toasts. The form is not cleared by the 60-second state refresh.
 6. **History**: table newest first (date, liters, paid, kr/L, delete with confirmation) plus Import CSV and Export CSV.
 7. The panel polls `get_state` every 60 seconds and after every action; it must never wipe half-typed form input on refresh.

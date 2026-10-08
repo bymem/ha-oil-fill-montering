@@ -15,6 +15,8 @@ from .model import order_by_date
 from .prices import PriceStats
 
 STALE_PRICE_DAYS = 3
+# Stock-up tier defaults (spec section 7): unusually cheap vs a long window.
+DEFAULT_STOCK_UP_PERCENT = 7.0
 GOOD_PERCENT_BELOW_AVERAGE = -3.0
 CLOSE_TO_ORDER_BY_DAYS = 7
 
@@ -40,8 +42,15 @@ def decide(
     buffer_days: int,
     min_order_l: float,
     window_days: int,
+    stock_up_stats: PriceStats | None = None,
+    stock_up_percent: float = DEFAULT_STOCK_UP_PERCENT,
 ) -> Decision:
-    """Combine level, forecast and price into one recommendation."""
+    """Combine level, forecast and price into one recommendation.
+
+    Two tiers: "stock up" when the price is unusually cheap against a long
+    window (`stock_up_stats`) and the tank has room, at any time; otherwise
+    the normal price rules, only inside the order window.
+    """
     if level_l is None or days_remaining is None:
         return Decision(False, False, "Set the tank level (needle) to start tracking.", None)
 
@@ -67,6 +76,23 @@ def decide(
             order_by,
         )
 
+    # Tier A: unusually cheap and the tank can take it, whatever the order-by date.
+    if (
+        stock_up_stats is not None
+        and (today - stock_up_stats.price_date).days <= STALE_PRICE_DAYS
+        and stock_up_stats.percent_vs_average <= -stock_up_percent
+    ):
+        return Decision(
+            True,
+            False,
+            f"Unusually cheap: {stock_up_stats.price / 1000:.2f} kr/L is "
+            f"{-stock_up_stats.percent_vs_average:.1f}% below the "
+            f"{stock_up_stats.lookback_days}-day average, and the tank has room for "
+            f"{room:.0f} L. {by}",
+            order_by,
+        )
+
+    # Tier B: the normal price rules, only close to the order-by date.
     if slack > window_days:
         return Decision(
             False,

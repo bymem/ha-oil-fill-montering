@@ -148,3 +148,31 @@ def test_normal_dd_between():
 def test_daily_burn_uses_temperature_or_normal():
     assert daily_burn(RATES, 1.0, 7, 10) == pytest.approx(RATES.base_l_per_day + RATES.l_per_dd * 10)
     assert daily_burn(RATES, 1.0, None, 7) == pytest.approx(RATES.base_l_per_day + RATES.l_per_dd * 0)  # July is above 17 C
+
+
+def test_predict_order():
+    from oil_tank.model import predict_order
+
+    # No delivery time: 400 + 600 = 1000 L on 2026-10-07 lasts 136.2 days (spec 5.3).
+    result = predict_order(
+        level_l=400, ordered_l=600, today=TODAY, capacity_l=1200, rates=RATES, scale=1.0,
+        lead_days=0, buffer_days=14, window_days=45,
+    )
+    assert result.level_after_l == 1000
+    assert result.days_left == pytest.approx(136.2, abs=0.05)
+    # 136.2 - 0 lead - 14 buffer = 122 days.
+    assert result.order_by == TODAY + timedelta(days=122)
+    assert result.window_start == result.order_by - timedelta(days=45)
+
+
+def test_predict_order_burns_until_delivery_and_caps():
+    from oil_tank.model import predict_order
+
+    result = predict_order(
+        level_l=400, ordered_l=2000, today=TODAY, capacity_l=1200, rates=RATES, scale=1.0,
+        lead_days=5, buffer_days=14, window_days=45,
+    )
+    assert result.delivery_date == TODAY + timedelta(days=5)
+    assert result.level_before_l < 400
+    assert result.level_after_l == 1200
+    assert result.room_l == pytest.approx(1200 - result.level_before_l)

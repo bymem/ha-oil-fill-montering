@@ -5,7 +5,7 @@ Keeps track of an oil tank without a working gauge. It estimates the oil left fr
 - **Level estimate:** modelled from degree-days (outdoor temperature) and a burn rate measured from your own logged deliveries. Every delivery moves the estimate; needle readings fine-tune it and, slowly, the model itself.
 - **Price:** today's list price from the supplier's feed, compared with the recent average.
 - **Recommendation:** "order now" when oil runs low, "good time to order" when the price is good and the tank has room.
-- **Panel:** a sidebar page with the gauge, outlook, price chart, fill-up form and history.
+- **Panel:** a sidebar page with the gauge, outlook, price chart, fill-up form and history. The **Predict** button in the outlook opens a calculator: enter liters and see the level after delivery, when you would need to order again, and the cost at today's price.
 
 Built for the Uno-X heating oil feed (fyringsolie.dk), prices in DKK. Full specification: [`docs/SPEC-2.md`](docs/SPEC-2.md).
 
@@ -88,7 +88,13 @@ date,liters,price
 
 ## Order notification
 
-`binary_sensor.oil_tank_order_recommended` turns on when it is a good moment to order (good price and room in the tank) or when it is urgent. Its `reason` attribute explains why. Send yourself a notification with a normal automation; this example reminds at most once every 3 days while the sensor stays on. Replace `notify.notify` with your own notify action (for example `notify.mobile_app_your_phone`).
+`binary_sensor.oil_tank_order_recommended` turns on in three cases, and its `reason` attribute says which:
+
+- **Order now** - oil runs out soon (delivery time plus safety buffer). Ignores price.
+- **Good time to order** - within 45 days of the order-by date and today's price is good (cheapest in 30 days, at least 3% below the 30-day average, or below average with the order-by date a week away).
+- **Unusually cheap** - at any time, when the price is at least 7% below the 90-day average and the tank has room for the smallest worthwhile order. This is what catches cheap periods far from the order-by date.
+
+The price sensor and the panel also show a 14-day price trend. It is for information only: in a backtest on two years of prices, ordering because prices were rising did not save money. Send yourself a notification with a normal automation; this example reminds at most once every 3 days while the sensor stays on. Replace `notify.notify` with your own notify action (for example `notify.mobile_app_your_phone`).
 
 ```yaml
 alias: Oil tank - order reminder

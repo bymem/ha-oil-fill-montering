@@ -12,6 +12,9 @@ from datetime import date, timedelta
 # "Lowest of the window" allows today to be this much above the earlier low.
 LOWEST_TOLERANCE = 0.0025
 
+# Trend: average of the last TREND_DAYS prices vs the TREND_DAYS before.
+TREND_DAYS = 14
+
 
 @dataclass(frozen=True)
 class PriceStats:
@@ -26,6 +29,20 @@ class PriceStats:
     lowest_in_window: bool
     age_days: int
     lookback_days: int
+
+
+def trend_percent(prices: list[tuple[date, float]], days: int = TREND_DAYS) -> float | None:
+    """Percent change of the last `days` prices' average vs the `days` before.
+
+    Information only: the backtest showed that ordering on a detected rise
+    does not pay (rises come as jumps; by the time the average moves, most of
+    it has happened). `prices` must be sorted oldest first.
+    """
+    if len(prices) < 2 * days:
+        return None
+    recent = sum(value for _, value in prices[-days:]) / days
+    before = sum(value for _, value in prices[-2 * days : -days]) / days
+    return (recent - before) / before * 100
 
 
 def price_stats(

@@ -31,6 +31,8 @@ class OilTankData:
             capacity_l=self.tank.capacity_l,
             today=dt_util.now().date(),
             stats=prices.stats if prices else None,
+            stock_up_stats=prices.stock_up_stats if prices else None,
+            stock_up_percent=self.settings.stock_up_percent,
             lead_days=self.settings.lead_days,
             buffer_days=self.settings.buffer_days,
             min_order_l=self.settings.min_order_l,

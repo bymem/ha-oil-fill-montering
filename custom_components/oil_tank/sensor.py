@@ -82,6 +82,16 @@ class OilTankPriceSensor(CoordinatorEntity[OilTankCoordinator], SensorEntity):
             "high_per_l": round(stats.high / 1000, 4),
             "percent_vs_average": round(stats.percent_vs_average, 2),
             "lowest_in_window": stats.lowest_in_window,
+            "stock_up_days": self.coordinator.data.stock_up_stats.lookback_days,
+            "stock_up_average_per_l": round(self.coordinator.data.stock_up_stats.average / 1000, 4),
+            "percent_vs_stock_up_average": round(
+                self.coordinator.data.stock_up_stats.percent_vs_average, 2
+            ),
+            "trend_percent_14d": (
+                None
+                if self.coordinator.data.trend_percent is None
+                else round(self.coordinator.data.trend_percent, 2)
+            ),
             # From today, not the last fetch, so a dead feed shows its age.
             "age_days": (dt_util.now().date() - stats.price_date).days,
         }

@@ -197,6 +197,56 @@ def order_by_date(
     return today + timedelta(days=math.floor(max(0.0, slack)))
 
 
+@dataclass(frozen=True)
+class Prediction:
+    """What ordering `ordered_l` today would mean (spec FR-9)."""
+
+    delivery_date: date
+    level_before_l: float
+    room_l: float
+    ordered_l: float
+    level_after_l: float
+    days_left: float
+    order_by: date
+    window_start: date
+
+
+def predict_order(
+    *,
+    level_l: float,
+    ordered_l: float,
+    today: date,
+    capacity_l: float,
+    rates: Rates,
+    scale: float,
+    lead_days: int,
+    buffer_days: int,
+    window_days: int,
+) -> Prediction:
+    """Order `ordered_l` today: level at delivery, then when to order again.
+
+    The delivery arrives after `lead_days`; burn until then and afterwards
+    is modelled on normal temperatures, like the days-left forecast. More
+    than fits is capped at capacity (`room_l` says how much would fit).
+    """
+    delivery = today + timedelta(days=lead_days)
+    burned = burn_since(rates, scale, lead_days, normal_dd_between(today, delivery, rates.base_temp))
+    before = max(0.0, level_l - burned)
+    after = min(capacity_l, before + ordered_l)
+    left = days_left(after, delivery, rates, scale)
+    next_order_by = order_by_date(left, delivery, lead_days, buffer_days)
+    return Prediction(
+        delivery_date=delivery,
+        level_before_l=before,
+        room_l=capacity_l - before,
+        ordered_l=ordered_l,
+        level_after_l=after,
+        days_left=left,
+        order_by=next_order_by,
+        window_start=max(today, next_order_by - timedelta(days=window_days)),
+    )
+
+
 def calibrate(
     scale: float, predicted: float, actual: float, interval_days: float
 ) -> float:

@@ -20,6 +20,8 @@ CONF_LOOKBACK_DAYS = "lookback_days"
 CONF_CALIBRATION_ENABLED = "calibration_enabled"
 CONF_GAUGE_OFFSET_L = "gauge_offset_l"
 CONF_GAUGE_SCALE_MAX = "gauge_scale_max"
+CONF_STOCK_UP_PERCENT = "stock_up_percent"
+CONF_STOCK_UP_DAYS = "stock_up_days"
 
 DEFAULT_CAPACITY_L = 1200
 DEFAULT_FEED_URL = "https://www.fyringsolie.dk/api/yx-xml/pg000015BULK.xml"
@@ -41,6 +43,10 @@ DEFAULTS = {
     # the value printed at the end of its scale (None = tank capacity).
     CONF_GAUGE_OFFSET_L: 0,
     CONF_GAUGE_SCALE_MAX: None,
+    # Stock-up tier: order any time the tank has room and the price is this
+    # many percent below its average over this many days.
+    CONF_STOCK_UP_PERCENT: 7.0,
+    CONF_STOCK_UP_DAYS: 90,
 }
 
 # Price feed polling (spec 3.1): prices change once a day.

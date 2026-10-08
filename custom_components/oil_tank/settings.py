@@ -25,6 +25,8 @@ from .const import (
     CONF_LEAD_DAYS,
     CONF_LOOKBACK_DAYS,
     CONF_MIN_ORDER_L,
+    CONF_STOCK_UP_DAYS,
+    CONF_STOCK_UP_PERCENT,
     CONF_TEMPERATURE_ENTITY,
     CONF_WINDOW_DAYS,
     DEFAULTS,
@@ -49,6 +51,8 @@ class Settings:
     calibration_enabled: bool
     gauge_offset_l: float
     gauge_scale_max: float
+    stock_up_percent: float
+    stock_up_days: int
 
     @classmethod
     def from_entry(cls, entry: ConfigEntry) -> Settings:
@@ -70,4 +74,6 @@ class Settings:
             calibration_enabled=bool(values[CONF_CALIBRATION_ENABLED]),
             gauge_offset_l=float(values[CONF_GAUGE_OFFSET_L]),
             gauge_scale_max=float(values[CONF_GAUGE_SCALE_MAX] or capacity),
+            stock_up_percent=float(values[CONF_STOCK_UP_PERCENT]),
+            stock_up_days=int(values[CONF_STOCK_UP_DAYS]),
         )

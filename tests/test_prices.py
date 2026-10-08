@@ -51,3 +51,12 @@ def test_single_price_is_not_lowest():
 def test_age_days():
     stats = price_stats(_series([1000], end=TODAY - timedelta(days=4)), TODAY)
     assert stats.age_days == 4
+
+
+def test_trend_percent():
+    from oil_tank.prices import trend_percent
+
+    assert trend_percent(_series([100] * 14 + [102] * 14)) == pytest.approx(2.0)
+    assert trend_percent(_series([100] * 27)) is None
+    # Only the last 2 x 14 days count.
+    assert trend_percent(_series([1] * 10 + [100] * 28)) == pytest.approx(0)

@@ -26,7 +26,7 @@ from .const import (
     FEED_TIMEOUT_SECONDS,
 )
 from .feed import FeedError, parse_feed
-from .prices import PriceStats, price_stats
+from .prices import PriceStats, price_stats, trend_percent
 from .settings import Settings
 
 _LOGGER = logging.getLogger(__name__)
@@ -38,6 +38,10 @@ class PriceData:
 
     prices: list[tuple[date, float]]
     stats: PriceStats
+    # Same newest price against the longer stock-up window.
+    stock_up_stats: PriceStats
+    # Percent change over the last 14 days vs the 14 before (information only).
+    trend_percent: float | None
 
 
 async def async_fetch_prices(hass: HomeAssistant, url: str) -> list[tuple[date, float]]:
@@ -69,6 +73,7 @@ class OilTankCoordinator(DataUpdateCoordinator[PriceData]):
         )
         self.feed_url = settings.feed_url
         self.lookback_days = settings.lookback_days
+        self.stock_up_days = settings.stock_up_days
         # Bumped whenever the price history changes, so the panel only
         # downloads the full history when there is something new.
         self.prices_version = 0
@@ -84,7 +89,14 @@ class OilTankCoordinator(DataUpdateCoordinator[PriceData]):
         self.update_interval = FEED_POLL_INTERVAL
         if self.data is None or self.data.prices != prices:
             self.prices_version += 1
-        stats = price_stats(prices, dt_util.now().date(), self.lookback_days)
-        # parse_feed never returns an empty list, so stats is always set here.
-        assert stats is not None
-        return PriceData(prices=prices, stats=stats)
+        today = dt_util.now().date()
+        stats = price_stats(prices, today, self.lookback_days)
+        stock_up_stats = price_stats(prices, today, self.stock_up_days)
+        # parse_feed never returns an empty list, so stats are always set here.
+        assert stats is not None and stock_up_stats is not None
+        return PriceData(
+            prices=prices,
+            stats=stats,
+            stock_up_stats=stock_up_stats,
+            trend_percent=trend_percent(prices),
+        )

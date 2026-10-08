@@ -145,7 +145,10 @@ class OilTankPanel extends HTMLElement {
             <div id="gauge"></div>
           </section>
           <section class="card">
-            <h2>Outlook</h2>
+            <div class="card-head">
+              <h2>Outlook</h2>
+              <button id="predict-open">Predict</button>
+            </div>
             <div id="outlook"></div>
           </section>
         </div>
@@ -153,13 +156,15 @@ class OilTankPanel extends HTMLElement {
         <section class="card">
           <div class="card-head">
             <h2>Price</h2>
-            <div class="segmented" id="ranges">
-              <button data-range="3m">3 months</button>
-              <button data-range="1y">1 year</button>
+            <div class="segmented" id="ranges" role="group" aria-label="Chart range">
+              <button data-range="3m">3M</button>
+              <button data-range="1y">1Y</button>
               <button data-range="all">All</button>
             </div>
           </div>
-          <div id="chart"></div>
+          <div id="price-head"></div>
+          <div class="chart-wrap" id="chart"></div>
+          <div id="price-stats"></div>
         </section>
 
         <div class="grid">
@@ -169,7 +174,7 @@ class OilTankPanel extends HTMLElement {
               <label>Date<input type="date" name="date" value="${today}" max="${today}" required></label>
               <label>Liters<input type="number" name="liters" min="1" step="any" inputmode="decimal" required></label>
               <label>Total price (DKK)<input type="number" name="price" min="0" step="any" inputmode="decimal" required></label>
-              <label>Level after delivery (L, optional)<input type="number" name="level_after" min="0" step="10" inputmode="decimal"></label>
+              <label>Level after delivery (L, optional)<input type="number" name="level_after" min="0" step="any" inputmode="decimal"></label>
               <div class="form-foot">
                 <span class="muted" id="per-liter"></span>
                 <button type="submit" class="primary">Save fill-up</button>
@@ -190,6 +195,19 @@ class OilTankPanel extends HTMLElement {
         </div>
       </div>
       <div class="toast" id="toast" hidden></div>
+      <dialog id="predict-dialog" aria-labelledby="predict-title">
+        <div class="dialog-head">
+          <h2 id="predict-title">Predict an order</h2>
+          <button class="icon" id="predict-close" title="Close"><ha-icon icon="mdi:close"></ha-icon></button>
+        </div>
+        <form id="predict-form" class="predict-form">
+          <label>Liters to order
+            <span class="row"><input type="number" name="liters" min="1" step="any" inputmode="numeric" required> L</span>
+          </label>
+          <button type="submit" class="primary">Predict</button>
+        </form>
+        <div id="predict-result"></div>
+      </dialog>
     `;
 
     const menu = this.shadowRoot.querySelector("ha-menu-button");
@@ -197,6 +215,7 @@ class OilTankPanel extends HTMLElement {
     menu.narrow = this._narrow;
 
     this._bindChartRanges();
+    this._bindPredict();
     this._bindForm();
     this._bindHistory();
   }
@@ -449,47 +468,90 @@ class OilTankPanel extends HTMLElement {
 
   _renderOutlook() {
     const s = this._state;
-    const p = s.price;
-    const tile = (label, value, extra = "") =>
-      `<div class="tile"><div class="muted small">${esc(label)}</div><div class="value">${value}</div>${extra}</div>`;
-
-    let priceTiles = tile("Today's price", "—");
-    if (p) {
-      const pct = p.percent_vs_average;
-      const chipClass = pct <= -3 ? "good" : pct >= 3 ? "bad" : "neutral";
-      const age = daysBetween(p.price_date, isoToday());
-      const stale = age > STALE_PRICE_DAYS;
-      priceTiles =
-        tile(
-          "Today's price",
-          `${fmtKr(p.price_per_l)} kr/L`,
-          `<span class="chip ${chipClass}">${pct >= 0 ? "+" : ""}${pct.toFixed(1)}% vs ${p.lookback_days}-day avg</span>`,
-        ) +
-        tile(`${p.lookback_days}-day range`, `${fmtKr(p.low_per_l)}–${fmtKr(p.high_per_l)}`) +
-        tile(
-          "Price date",
-          esc(fmtDate(p.price_date)),
-          stale ? `<span class="chip bad">${age} days old</span>` : "",
-        );
-    }
-
     const c = s.consumption;
     const source =
       c.source === "history"
-        ? `from ${c.fills_used} deliveries since ${fmtDate(c.since)}`
-        : "default; not enough deliveries logged yet";
+        ? `from ${c.fills_used} deliveries since ${c.since.slice(0, 4)}`
+        : "default (not enough deliveries logged yet)";
+
+    // Layout A: one big number per group plus one line of detail.
+    const tank =
+      s.level_l === null
+        ? `<div class="hero"><span class="big">—</span><span class="line">set the needle to start tracking</span></div>`
+        : `<div class="hero"><span class="big">${fmtInt(s.days_remaining)} days</span>
+             <span class="line">of oil · <strong>${fmtInt(s.level_l)} L</strong> in the tank</span></div>
+           <div class="line">Order by <strong>${esc(fmtDate(s.order_by))}</strong></div>`;
 
     this._el("outlook").innerHTML = `
-      ${s.price_error ? `<div class="warning small">Price feed problem: ${esc(s.price_error)}</div>` : ""}
-      <div class="tiles">
-        ${tile("In tank", s.level_l === null ? "—" : `${fmtInt(s.level_l)} L`)}
-        ${tile("Days of oil left", s.days_remaining === null ? "—" : fmtInt(s.days_remaining))}
-        ${tile("Order by", s.order_by ? esc(fmtDate(s.order_by)) : "—")}
-        ${priceTiles}
-        ${tile("Burning now", `${s.daily_l.toFixed(1)} L/day`, `<div class="muted small">at the current outdoor temperature</div>`)}
-        ${tile("Per year", `${fmtInt(s.yearly_l)} L`, `<div class="muted small">${esc(source)}</div>`)}
-        ${tile("Burn-rate factor", `× ${s.scale.toFixed(2)}`)}
+      <div class="group">
+        <div class="eyebrow">Tank</div>
+        ${tank}
       </div>
+      <div class="group">
+        <div class="eyebrow">Usage</div>
+        <div class="hero"><span class="big">${s.daily_l.toFixed(1)} L/day</span><span class="line">right now</span></div>
+        <div class="line"><strong>${fmtInt(s.yearly_l)} L/year</strong> ${esc(source)} · burn-rate factor × ${s.scale.toFixed(2)}</div>
+      </div>
+    `;
+  }
+
+  // ---- Predict -----------------------------------------------------------
+  //
+  // "If I order X L now, when do I order again?" A modal opened from the
+  // Outlook header. It lives outside the refreshed sections, so the 60-second
+  // update never touches it while it is open.
+
+  _bindPredict() {
+    const dialog = this._el("predict-dialog");
+    const form = this._el("predict-form");
+    const input = form.liters;
+
+    this._el("predict-open").addEventListener("click", () => {
+      const s = this._state;
+      if (!s || s.level_l === null) {
+        this._toast("Set the tank level first", true);
+        return;
+      }
+      // Prefill with the room in the tank right now.
+      input.value = Math.max(0, Math.floor((s.capacity_l - s.level_l) / 10) * 10);
+      this._el("predict-result").innerHTML = "";
+      dialog.showModal();
+      input.focus();
+      input.select();
+    });
+
+    form.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      try {
+        this._showPrediction(await this._ws("predict", { liters: parseFloat(input.value) }));
+      } catch (err) {
+        this._el("predict-result").innerHTML = `<div class="warning">${esc(errorText(err))}</div>`;
+      }
+    });
+
+    this._el("predict-close").addEventListener("click", () => dialog.close());
+    // A click on the backdrop (outside the dialog box) closes it.
+    dialog.addEventListener("click", (ev) => {
+      if (ev.target === dialog) {
+        dialog.close();
+      }
+    });
+  }
+
+  _showPrediction(r) {
+    const row = (label, value) => `<dt>${esc(label)}</dt><dd>${value}</dd>`;
+    const cost =
+      r.price_per_l === null
+        ? "—"
+        : `≈ ${fmtInt(r.ordered_l * r.price_per_l)} kr <span class="muted">(${fmtKr(r.price_per_l)} kr/L)</span>`;
+    this._el("predict-result").innerHTML = `
+      <dl>
+        ${row(`After delivery (≈ ${fmtDate(r.delivery_date)})`, `${fmtInt(r.level_after_l)} L`)}
+        ${row("Next order by", `<strong>${esc(fmtDate(r.order_by))}</strong> <span class="muted">(${fmtInt(r.days_left)} days of oil)</span>`)}
+        ${row("Price watching from", esc(fmtDate(r.window_start)))}
+        ${row("Cost at today's price", cost)}
+      </dl>
+      ${r.ordered_l > r.room_l ? `<div class="warning">Only about ${fmtInt(r.room_l)} L fits; the rest would not go in.</div>` : ""}
     `;
   }
 
@@ -497,18 +559,84 @@ class OilTankPanel extends HTMLElement {
 
   _bindChartRanges() {
     this._el("ranges").addEventListener("click", (ev) => {
-      const range = ev.target.dataset?.range;
+      const range = ev.target.closest("button")?.dataset.range;
       if (range) {
         this._range = range;
         this._renderChart();
       }
     });
+    // Redraw at the real pixel width so the labels stay readable on a phone.
+    let lastWidth = 0;
+    new ResizeObserver(([entry]) => {
+      const width = Math.round(entry.contentRect.width);
+      if (this._state && Math.abs(width - lastWidth) > 4) {
+        lastWidth = width;
+        this._renderChart();
+      }
+    }).observe(this._el("chart"));
+  }
+
+  /** Big price, change since the previous price, chips, freshness. */
+  _renderPriceHead() {
+    const s = this._state;
+    const p = s.price;
+    const head = this._el("price-head");
+    const error = s.price_error ? `<div class="warning small">Price feed problem: ${esc(s.price_error)}</div>` : "";
+    if (!p) {
+      head.innerHTML = `${error}<div class="muted">No price yet.</div>`;
+      this._el("price-stats").innerHTML = "";
+      return;
+    }
+
+    const prev = this._prices.length > 1 ? this._prices[this._prices.length - 2] : null;
+    const change = prev ? p.price_per_l - prev[1] / 1000 : 0;
+    const age = daysBetween(p.price_date, isoToday());
+    const pct = p.percent_vs_average;
+    const longPct = p.percent_vs_stock_up_average;
+    const trend = p.trend_percent;
+    const chip = (cls, text, title = "") => `<span class="chip ${cls}"${title ? ` title="${esc(title)}"` : ""}>${text}</span>`;
+
+    head.innerHTML = `
+      ${error}
+      <div class="price-top">
+        <div>
+          <div class="price-now">${fmtKr(p.price_per_l)} <small>kr/L</small></div>
+          <div class="delta ${change < 0 ? "down" : change > 0 ? "up" : ""}">
+            ${prev ? `${change < 0 ? "▼" : change > 0 ? "▲" : "■"} ${fmtKr(Math.abs(change))} since ${esc(fmtShortDate(prev[0]))} · ` : ""}updated ${esc(fmtShortDate(p.price_date))}
+            ${age > STALE_PRICE_DAYS ? chip("bad", `${age} days old`) : ""}
+          </div>
+        </div>
+        <div class="chips">
+          ${chip(pct <= -3 ? "good" : pct >= 3 ? "bad" : "", `${signed(pct)}% vs ${p.lookback_days}-day avg`)}
+          ${chip(longPct <= -p.stock_up_percent ? "good" : "", `${signed(longPct)}% vs ${p.stock_up_days}-day avg`)}
+          ${
+            trend === null
+              ? ""
+              : chip(
+                  trend >= 2 ? "bad" : trend <= -2 ? "good" : "",
+                  `${Math.abs(trend) < 0.5 ? "→" : trend > 0 ? "↑" : "↓"} ${signed(trend)}% / 14 d`,
+                  "Last 14 days against the 14 before (information only)",
+                )
+          }
+        </div>
+      </div>
+    `;
+
+    this._el("price-stats").innerHTML = `
+      <div class="stats">
+        <div><div class="l">${p.lookback_days}-day low</div><div class="v">${fmtKr(p.low_per_l)}</div></div>
+        <div><div class="l">${p.lookback_days}-day avg</div><div class="v">${fmtKr(p.average_per_l)}</div></div>
+        <div><div class="l">${p.lookback_days}-day high</div><div class="v">${fmtKr(p.high_per_l)}</div></div>
+        <div><div class="l">${p.stock_up_days}-day avg</div><div class="v">${fmtKr(p.stock_up_average_per_l)}</div></div>
+      </div>
+    `;
   }
 
   _renderChart() {
     for (const btn of this._el("ranges").querySelectorAll("button")) {
-      btn.classList.toggle("on", btn.dataset.range === this._range);
+      btn.setAttribute("aria-pressed", String(btn.dataset.range === this._range));
     }
+    this._renderPriceHead();
     const chart = this._el("chart");
     if (!this._prices.length) {
       chart.innerHTML = `<div class="muted">No price data yet.</div>`;
@@ -517,87 +645,113 @@ class OilTankPanel extends HTMLElement {
 
     // Points: [epoch days, kr per liter].
     const all = this._prices.map(([d, v]) => [dayNumber(d), v / 1000]);
-    const last = all[all.length - 1][0];
-    const span = CHART_RANGES[this._range];
-    const points = all.filter(([d]) => d > last - span);
+    const last = all[all.length - 1];
+    const points = all.filter(([d]) => d > last[0] - CHART_RANGES[this._range]);
     const first = points[0][0];
 
-    const W = 640, H = 240, L = 44, R = 12, T = 12, B = 26;
+    // Drawn at the container's pixel width, so text keeps its size.
+    const W = Math.max(300, Math.round(chart.clientWidth) || 640);
+    const H = W < 500 ? 210 : 250;
+    const L = 8, R = 52, T = 18, B = 26;
     let lo = Math.min(...points.map((p) => p[1]));
     let hi = Math.max(...points.map((p) => p[1]));
-    const pad = Math.max((hi - lo) * 0.08, 0.05);
+    const pad = Math.max((hi - lo) * 0.1, 0.1);
     lo -= pad;
     hi += pad;
-    const x = (d) => L + ((d - first) / Math.max(1, last - first)) * (W - L - R);
+    const x = (d) => L + ((d - first) / Math.max(1, last[0] - first)) * (W - L - R);
     const y = (v) => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
+    // Keep text labels inside the plot.
+    const lx = (d) => Math.min(W - R - 34, Math.max(L + 34, x(d)));
 
     const line = points.map(([d, v], i) => `${i ? "L" : "M"}${x(d).toFixed(1)},${y(v).toFixed(1)}`).join("");
+    const area = `${line}L${x(last[0]).toFixed(1)},${H - B}L${x(first).toFixed(1)},${H - B}Z`;
     const grid = [0, 1, 2, 3]
       .map((i) => {
-        const v = lo + ((hi - lo) * i) / 3;
+        const v = lo + pad + ((hi - lo - 2 * pad) * i) / 3;
         return `<line class="gridline" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"></line>
-                <text class="axis" x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${v.toFixed(2)}</text>`;
+                <text class="axis" x="${W - R + 8}" y="${y(v) + 4}">${v.toFixed(2)}</text>`;
       })
       .join("");
-    const xLabels = [first, (first + last) / 2, last]
-      .map((d, i) => `<text class="axis" x="${x(d)}" y="${H - 6}" text-anchor="${["start", "middle", "end"][i]}">${esc(fmtDate(isoFromDayNumber(Math.round(d))))}</text>`)
+    const xLabels = [first, (first + last[0]) / 2, last[0]]
+      .map((d, i) => `<text class="axis" x="${x(d)}" y="${H - 6}" text-anchor="${["start", "middle", "end"][i]}">${esc(fmtShortDate(isoFromDayNumber(Math.round(d)), this._range !== "3m"))}</text>`)
       .join("");
 
-    const avg = this._state.price?.average_per_l;
+    const p = this._state.price;
+    const avg = p?.average_per_l;
     const avgLine =
       avg && avg > lo && avg < hi
-        ? `<line class="avg" x1="${L}" x2="${W - R}" y1="${y(avg)}" y2="${y(avg)}"><title>${this._state.price.lookback_days}-day average ${fmtKr(avg)} kr/L</title></line>`
+        ? `<line class="avg" x1="${L}" x2="${W - R}" y1="${y(avg)}" y2="${y(avg)}"></line>
+           <text class="avg-label" x="${L + 4}" y="${y(avg) - 6}">${p.lookback_days}-day avg ${fmtKr(avg)}</text>`
         : "";
+
+    const lowP = points.reduce((a, b) => (b[1] < a[1] ? b : a));
+    const highP = points.reduce((a, b) => (b[1] > a[1] ? b : a));
 
     // The owner's fills inside the range: faint vertical line + dot on the price line.
     const byDay = new Map(points);
     const fills = this._state.fills
       .map((f) => [dayNumber(f.date), f])
-      .filter(([d]) => d >= first && d <= last)
+      .filter(([d]) => d >= first && d <= last[0])
       .map(([d, f]) => {
         const v = byDay.get(d) ?? nearest(points, d)[1];
         const tip = `${fmtDate(f.date)}: ${fmtInt(f.liters)} L, paid ${fmtKr(f.price / f.liters)} kr/L`;
-        return `<line class="fill-line" x1="${x(d)}" x2="${x(d)}" y1="${T}" y2="${H - B}"></line>
+        return `<line class="fill-line" x1="${x(d)}" x2="${x(d)}" y1="${y(v)}" y2="${H - B}"></line>
                 <circle class="fill-dot" cx="${x(d)}" cy="${y(v)}" r="5"><title>${esc(tip)}</title></circle>`;
       })
       .join("");
 
     chart.innerHTML = `
-      <svg class="chart" viewBox="0 0 ${W} ${H}">
-        ${grid}${xLabels}${avgLine}${fills}
+      <svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Price history">
+        <defs><linearGradient id="price-fill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="var(--accent)" stop-opacity="0.28"></stop>
+          <stop offset="1" stop-color="var(--accent)" stop-opacity="0"></stop>
+        </linearGradient></defs>
+        ${grid}${xLabels}
+        <path d="${area}" fill="url(#price-fill)"></path>
+        ${avgLine}${fills}
         <path class="price-line" d="${line}"></path>
+        <text class="lowhigh" x="${lx(highP[0])}" y="${y(highP[1]) - 8}" text-anchor="middle">high ${fmtKr(highP[1])}</text>
+        <text class="lowhigh" x="${lx(lowP[0])}" y="${y(lowP[1]) + 16}" text-anchor="middle">low ${fmtKr(lowP[1])}</text>
+        <circle class="end-ring" cx="${x(last[0])}" cy="${y(last[1])}" r="10"></circle>
+        <circle class="end-dot" cx="${x(last[0])}" cy="${y(last[1])}" r="5"></circle>
         <line id="hover-line" class="hover-line" y1="${T}" y2="${H - B}" hidden></line>
-        <circle id="hover-dot" class="hover-dot" r="4" hidden></circle>
+        <circle id="hover-dot" class="hover-dot" r="4.5" hidden></circle>
         <rect id="hover-area" x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}" fill="transparent"></rect>
       </svg>
-      <div class="muted small" id="hover-text">&nbsp;</div>
+      <div class="tip" id="chart-tip" hidden></div>
     `;
 
-    // Hover / touch: nearest day's price under the pointer.
+    // Hover / touch: nearest day's price under the pointer, in a floating tip.
     const svg = chart.querySelector("svg");
-    const area = this._el("hover-area");
+    const area_ = this._el("hover-area");
     const hoverLine = this._el("hover-line");
     const hoverDot = this._el("hover-dot");
-    const hoverText = this._el("hover-text");
-    area.addEventListener("pointermove", (ev) => {
+    const tip = this._el("chart-tip");
+    const show = (ev) => {
       const pt = svg.createSVGPoint();
       pt.x = ev.clientX;
       pt.y = ev.clientY;
       const px = pt.matrixTransform(svg.getScreenCTM().inverse()).x;
-      const day = first + ((px - L) / (W - L - R)) * (last - first);
-      const [d, v] = nearest(points, day);
-      hoverLine.setAttribute("x1", x(d));
-      hoverLine.setAttribute("x2", x(d));
-      hoverDot.setAttribute("cx", x(d));
-      hoverDot.setAttribute("cy", y(v));
+      const [d, v] = nearest(points, first + ((px - L) / (W - L - R)) * (last[0] - first));
+      for (const [el, attr, val] of [
+        [hoverLine, "x1", x(d)], [hoverLine, "x2", x(d)], [hoverDot, "cx", x(d)], [hoverDot, "cy", y(v)],
+      ]) {
+        el.setAttribute(attr, val);
+      }
       hoverLine.removeAttribute("hidden");
       hoverDot.removeAttribute("hidden");
-      hoverText.textContent = `${fmtDate(isoFromDayNumber(d))}: ${fmtKr(v)} kr/L`;
-    });
-    area.addEventListener("pointerleave", () => {
+      const scale = svg.getBoundingClientRect().width / W;
+      tip.style.left = `${x(d) * scale}px`;
+      tip.style.top = `${y(v) * scale}px`;
+      tip.textContent = `${fmtDate(isoFromDayNumber(d))} · ${fmtKr(v)} kr/L`;
+      tip.hidden = false;
+    };
+    area_.addEventListener("pointermove", show);
+    area_.addEventListener("pointerdown", show);
+    area_.addEventListener("pointerleave", () => {
       hoverLine.setAttribute("hidden", "");
       hoverDot.setAttribute("hidden", "");
-      hoverText.innerHTML = "&nbsp;";
+      tip.hidden = true;
     });
   }
 
@@ -804,12 +958,24 @@ function nearest(points, day) {
   return best;
 }
 
+/** One decimal with an explicit sign: +2.4 / -1.0. */
+function signed(value) {
+  return `${value >= 0 ? "+" : ""}${value.toFixed(1)}`;
+}
+
 function fmtInt(value) {
   return Math.round(value).toLocaleString();
 }
 
 function fmtKr(value) {
   return value.toFixed(2);
+}
+
+/** "8 Oct", or "8 Oct 2026" with the year. Takes an ISO date. */
+function fmtShortDate(iso, withYear = false) {
+  const [y, m, d] = iso.split("-").map(Number);
+  const options = withYear ? { day: "numeric", month: "short", year: "numeric" } : { day: "numeric", month: "short" };
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, options);
 }
 
 function fmtDate(iso) {
@@ -886,8 +1052,10 @@ const STYLES = `
   button.primary { background: var(--accent); color: var(--text-primary-color, #fff); border-color: transparent; }
   button.icon { background: none; border: none; padding: 4px; color: var(--muted); }
   button.icon:hover { color: var(--bad); }
-  .segmented { display: flex; gap: 4px; }
-  .segmented button.on { background: var(--accent-wash); border-color: var(--accent); }
+  /* Pill-shaped range switch. */
+  .segmented { display: inline-flex; padding: 3px; gap: 2px; border-radius: 999px; background: var(--panel-2); }
+  .segmented button { border: 0; border-radius: 999px; padding: 4px 12px; background: transparent; font-size: 13px; }
+  .segmented button[aria-pressed="true"] { background: var(--panel); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18); }
   .actions { display: flex; gap: 6px; }
 
   .error { background: var(--bad); color: #fff; padding: 10px 14px; border-radius: 8px; }
@@ -931,22 +1099,67 @@ const STYLES = `
   .gauge-buttons { display: flex; justify-content: center; gap: 8px; margin: 10px 0 4px; }
   #calibration { text-align: center; margin-top: 8px; }
 
-  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
-  .tile { background: var(--panel-2); border-radius: 8px; padding: 10px 12px; }
-  .value { font-size: 18px; font-weight: 500; margin-top: 2px; }
-  .chip { display: inline-block; margin-top: 6px; padding: 2px 8px; border-radius: 10px; font-size: 12px; background: var(--hairline); }
+  /* Outlook: groups with one big number and one line of detail. */
+  #outlook { font-variant-numeric: tabular-nums; }
+  .group + .group { border-top: 1px solid var(--hairline); padding-top: 12px; margin-top: 12px; }
+  .eyebrow { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+  .hero { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .hero .big { font-size: 28px; font-weight: 500; }
+  .line { color: var(--muted); font-size: 14px; }
+  .line strong { color: var(--text); font-weight: 500; }
+  dialog {
+    width: min(460px, calc(100vw - 32px)); padding: 16px 20px 20px; border: 1px solid var(--line);
+    border-radius: var(--radius); background: var(--panel); color: var(--text);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  }
+  dialog::backdrop { background: rgba(0, 0, 0, 0.5); }
+  .dialog-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .dialog-head h2 { margin: 0; }
+  .predict-form { display: flex; align-items: flex-end; gap: 10px; grid-template-columns: none; }
+  .predict-form label { flex: 1; }
+  .predict-form .row { display: flex; align-items: center; gap: 6px; color: var(--text); }
+  .predict-form input { flex: 1; }
+  #predict-result dl { display: grid; grid-template-columns: auto auto; gap: 8px 16px; margin: 16px 0 0; }
+  #predict-result dt { color: var(--muted); }
+  #predict-result dd { margin: 0; text-align: right; }
+  #predict-result .warning { margin-top: 12px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .chip { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; background: var(--hairline); white-space: nowrap; }
   .chip.good { background: color-mix(in srgb, var(--good) 22%, transparent); color: var(--good); }
   .chip.bad { background: color-mix(in srgb, var(--bad) 22%, transparent); color: var(--bad); }
 
-  .chart { width: 100%; display: block; touch-action: pan-y; }
+  /* Price card: big price, area chart, key numbers. */
+  #price-head, #price-stats { font-variant-numeric: tabular-nums; }
+  .price-top { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px 24px; flex-wrap: wrap; }
+  .price-now { font-size: 34px; font-weight: 500; line-height: 1.1; }
+  .price-now small { font-size: 16px; font-weight: 400; color: var(--muted); }
+  .delta { font-size: 14px; color: var(--muted); }
+  .delta.down { color: var(--good); }
+  .delta.up { color: var(--bad); }
+  .chart-wrap { position: relative; margin-top: 14px; }
+  .chart { width: 100%; height: auto; display: block; overflow: visible; touch-action: pan-y; }
   .gridline { stroke: var(--hairline); }
   .axis { fill: var(--muted); font-size: 11px; }
-  .price-line { fill: none; stroke: var(--accent); stroke-width: 2; }
+  .price-line { fill: none; stroke: var(--accent); stroke-width: 2.25; stroke-linejoin: round; }
   .avg { stroke: var(--muted); stroke-dasharray: 5 4; }
-  .fill-line { stroke: var(--good); opacity: 0.25; }
-  .fill-dot { fill: var(--good); stroke: var(--panel); stroke-width: 2; }
+  .avg-label, .lowhigh { fill: var(--muted); font-size: 11px; }
+  .lowhigh { font-size: 10px; }
+  .end-dot { fill: var(--accent); stroke: var(--panel); stroke-width: 3; }
+  .end-ring { fill: none; stroke: var(--accent); opacity: 0.35; }
+  .fill-line { stroke: var(--good); opacity: 0.35; }
+  .fill-dot { fill: var(--panel); stroke: var(--good); stroke-width: 2.5; }
   .hover-line { stroke: var(--muted); stroke-width: 1; }
   .hover-dot { fill: var(--accent); stroke: var(--panel); stroke-width: 2; }
+  .tip {
+    position: absolute; pointer-events: none; transform: translate(-50%, -120%); white-space: nowrap;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 12px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+  }
+  .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; margin-top: 14px; border-radius: 10px; overflow: hidden; background: var(--hairline); }
+  .stats > div { background: var(--panel); padding: 8px 12px; }
+  .stats .l { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+  .stats .v { font-size: 16px; font-weight: 500; }
+  @media (max-width: 480px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .price-now { font-size: 28px; } }
 
   form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
