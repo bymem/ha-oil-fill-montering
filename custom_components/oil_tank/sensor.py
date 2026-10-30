@@ -41,7 +41,7 @@ async def async_setup_entry(
 
 
 class OilTankPriceSensor(CoordinatorEntity[OilTankCoordinator], SensorEntity):
-    """Newest list price in DKK per liter, with window stats as attributes."""
+    """Newest price in DKK per liter, with window stats as attributes."""
 
     _attr_has_entity_name = True
     _attr_translation_key = "price"

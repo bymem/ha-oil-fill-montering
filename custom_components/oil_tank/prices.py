@@ -1,7 +1,7 @@
 """Price statistics over a comparison window (spec FR-1).
 
 Pure logic: imports nothing from Home Assistant so it can be unit tested alone.
-All prices are DKK per 1000 litres, as delivered by the feed.
+All prices are DKK per 1000 litres, as returned by the feed parsers.
 """
 
 from __future__ import annotations
@@ -14,6 +14,9 @@ LOWEST_TOLERANCE = 0.0025
 
 # Trend: average of the last TREND_DAYS prices vs the TREND_DAYS before.
 TREND_DAYS = 14
+
+# Saved price history keeps this many days (longest lookback is 365).
+HISTORY_DAYS = 730
 
 
 @dataclass(frozen=True)
@@ -79,3 +82,24 @@ def price_stats(
         age_days=(today - newest_date).days,
         lookback_days=lookback_days,
     )
+
+
+def merge_prices(
+    history: list[tuple[date, float]],
+    rows: list[tuple[date, float]],
+    today: date,
+    overwrite: bool = True,
+) -> list[tuple[date, float]]:
+    """Add `rows` to `history`, one price per date, sorted oldest first.
+
+    With `overwrite` a row replaces the saved price of its date (the feed's
+    price can change during the day); without it, saved dates are kept (the
+    history import never replaces fetched prices). Days older than
+    HISTORY_DAYS are dropped.
+    """
+    by_date = dict(history)
+    for day, value in rows:
+        if overwrite or day not in by_date:
+            by_date[day] = value
+    oldest = today - timedelta(days=HISTORY_DAYS)
+    return sorted((day, value) for day, value in by_date.items() if day >= oldest)

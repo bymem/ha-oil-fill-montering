@@ -51,7 +51,7 @@ Build something for Home Assistant that:
 | Typical yearly consumption | about 1,790 L (range 1,645 to 1,928 L over 2017-2023) | VERIFIED from the owner's history |
 | Typical delivery size | 800 to 1,200 L, normally two per year (January, plus May to September) | VERIFIED |
 | Tank run-down habit | Historic data suggests the tank was usually run close to empty before a delivery | VERIFIED (inferred from the year-end splits in the source sheet) |
-| Supplier | Uno-X heating oil, fyringsolie.dk | CONFIRMED |
+| Supplier | Billigolie.dk, Luxus heating oil (was Uno-X, fyringsolie.dk, until 2026-10) | CONFIRMED |
 | Delivery time | within 3 working days (faster costs a fee) | from supplier site |
 | Price history available | 731 consecutive daily prices, 2024-10-07 to 2026-10-07, no gaps | VERIFIED |
 | Price on 2026-10-07 | 22,321 DKK per 1000 L (22.32 DKK/L); 30-day average 22,811; 2-year range 16,237 to 23,521 | VERIFIED |
@@ -64,18 +64,17 @@ Build something for Home Assistant that:
 
 ### 3.1 Price feed
 
-* URL (default, configurable): `https://www.fyringsolie.dk/api/yx-xml/pg000015BULK.xml`
-* **The URL ends in `.xml` but the body is JSON** (VERIFIED from a downloaded copy). Parse by content, not by content type. The shape is:
+* Supplier: **Billigolie.dk** (a WooCommerce shop). The previous supplier's feed (`fyringsolie.dk/api/yx-xml/pg000015BULK.xml`) is dead; entries that still use it are moved to the default URL on setup.
+* URL (default, configurable): `https://www.billigolie.dk/wp-json/wc/store/v1/products/4775` - the public WooCommerce Store API for one product (4775 = Luxus 1000 L; Alm. 1000 L is 4792). No login. The shape (relevant part):
 
 ```json
-{"prices":{"price":[{"@_date":"07.10.2024","value":16437.25}, {"@_date":"08.10.2024","value":16437.25}]}}
+{"id":4775,"name":"Billig Fyringsolie Luxus 1000 L","prices":{"price":"1736","currency_minor_unit":2,"currency_code":"DKK"}}
 ```
 
-* `@_date` is `dd.mm.yyyy`. `value` is the **list price in DKK per 1000 litres, including whatever the supplier includes in the list price**, one entry per calendar day, oldest first, containing the full two-year history on every request.
-* The supplier's web page also shows an "internet price" for the logged-in customer, which differs from the list price. The feed gives only the list price. The system compares list prices to list prices (trend), so the offset does not matter for the buy decision.
-* Tolerate: BOM, single-row objects instead of arrays (XML-to-JSON converters do this), bad rows (skip them), and a feed with zero usable rows (treat as an error and keep the previous data).
-* If the feed ever returns real XML, that is an error in v1 (surface "unexpected format"; do not guess).
-* Poll at most every 3 hours (prices change once a day). After a failed fetch retry after 30 minutes. A failing feed must never break level tracking.
+* `price` is today's **price per liter including VAT and delivery, in minor units** (1736 = 17.36 kr/L). It is stored as DKK per 1000 litres (17,360). The response has **no date and no history**: the price is stamped with today's date and merged into the saved price history (section 6), one row per day; a later fetch on the same day replaces it.
+* **History import (once):** the first successful fetch also reads the market page `https://www.billigolie.dk/pris-paa-fyringsolie/oliepris-og-markedsudvikling/`. Its chart script holds about a year of **weekly** prices per 1000 L: `var startDate = new Date(2025,9,20);` (month 0-based) and `var bo_vores = [11700,10900,...];`. Each weekly price is repeated for its 7 days (the trend compares rows, so the history must stay daily); the newest week runs on until yesterday. The chart is **Alm.** oil, so every imported row is shifted by today's difference between the configured product and Alm. (+100 kr per 1000 L for Luxus on 2026-10-30). Imported rows never replace saved dates. If the import fails it is retried on every poll until it works.
+* Reject anything that is not a product with a positive price (treat as an error and keep the previous data).
+* Poll at most every 3 hours (prices change at most once a day). After a failed fetch retry after 30 minutes. A failing feed must never break level tracking.
 * A newest price older than 3 days is **stale**: the system must not give price-based advice from stale data.
 
 ### 3.2 Fill history: the one and only CSV
@@ -242,7 +241,7 @@ One persisted document (Home Assistant `Store`, version 1):
 ```
 
 * Save immediately after any user action; otherwise debounce (60 s).
-* Prices are **not** persisted (the feed returns the full history each time). On restart before the first successful fetch, price entities are `unknown`; level tracking still works.
+* Prices are persisted in a separate Store file, `oil_tank.prices`: `{"prices": [["2026-10-30", 17360.0], ...], "imported": true}`, saved after each fetch that changes it. Days older than 730 are dropped. `imported` turns true once the history import (3.1) has succeeded. On restart before the first successful fetch, price entities are `unknown`; level tracking still works.
 * `fills[].id` is a short random id used for deletion. Fills are returned newest first.
 
 ---
@@ -385,7 +384,7 @@ Plain custom element (web component), **no build step**, served from the integra
 
 ## 11. Non-functional requirements
 
-* **Performance:** the price feed is about 30 KB; fetch at most every 3 hours. Never block the event loop (read files in the executor). The 60-second panel poll must not include the price history. The model is O(days to forecast) with a 730-iteration cap - negligible.
+* **Performance:** the price feed is about 6 KB; fetch at most every 3 hours. The history page (about 450 KB) is fetched only until the import has succeeded. Never block the event loop (read files in the executor). The 60-second panel poll must not include the price history. The model is O(days to forecast) with a 730-iteration cap - negligible.
 * **Maintainability:** keep it simple. Put all pure logic (feed parser, CSV, model, decision) in modules that import nothing from Home Assistant so they can be unit tested without it. Comment the code well enough that the code documents itself. English for everything: code, comments, identifiers, UI text.
 * **No personal names** in code, comments, README or commit messages; use "Author" or "Maintainer" if attribution is needed.
 * **Privacy:** the owner's CSV is the household's real purchase history and is never committed (the repository is public). Tests and this document use synthetic data only.
@@ -397,7 +396,7 @@ Plain custom element (web component), **no build step**, served from the integra
 ## 12. Test and acceptance criteria
 
 ### 12.1 Unit tests (no Home Assistant needed)
-* Feed: parses and sorts; skips bad rows; accepts a single-row object; rejects non-JSON, `{}`, empty list.
+* Feed: parses the real product response (1736 -> 17,360 per 1000 L); accepts a BOM; rejects non-JSON, `{}`, a missing, non-numeric or zero price. History page: parses the real chart (first row 2025-10-20, daily rows up to yesterday); rejects a missing or empty chart. Merge: overwrites by default, keeps saved dates without overwrite, drops days older than 730.
 * CSV (sample file `tests/fixtures/fills_sample.csv`, Appendix A): parses to exactly 22 rows with 0 errors, ascending after sorting, first 2016-01-12/950/6650, last 2026-08-26/870/19400, totals 20,660 L and 242,200 DKK; `dd.mm.yy` maps to 20yy. Also: Danish formats (`;`, `6.566,00`, `dd.mm.yyyy`), header aliases, BOM, headerless, bad rows reported while good rows kept, empty file, merge idempotent and sorted, export then import round-trips.
 * Model: default rates reproduce the yearly consumption within 1% over a normal year; level burns and clamps at 0 and capacity; forecast shorter in autumn than summer for the same level; the test vectors in 5.3; calibration ignores short intervals and tiny predictions, is damped and capped.
 * Prices: lowest-of-window detection, percent vs average, empty list, the real-data case (today not lowest because 22,121 was lower within 30 days).
@@ -452,7 +451,7 @@ Each milestone should leave a working, installable integration.
 
 * A throw-away prototype of this design was built and passed 44 automated tests (pure logic, a real Home Assistant test instance, and a jsdom panel smoke test), run on Home Assistant 2026.2.3. It has never been run on a live installation or in a real browser. It is optional reference material, not a dependency of this spec.
 * The websocket `id` collision (9.4), the `home-assistant-frontend` test requirement (12.2), and reading files off the event loop were the only real defects found.
-* The price feed's `.xml` URL returns JSON (3.1).
+* The previous supplier's price feed `.xml` URL returned JSON; that feed is now dead (3.1).
 * The source sheet's year-end "meter reading" rows are eyeballed levels (round numbers like 300, 400, 500), which is why the model treats readings as noisy and damps its learning.
 
 ---
@@ -491,14 +490,17 @@ Parsed: 22 rows, 0 errors; first 2016-01-12 / 950 L / 6,650 DKK; last 2026-08-26
 
 ## Appendix B - Price feed sample
 
+Store API, product 4775 (Luxus 1000 L), 2026-10-30, trimmed (`tests/fixtures/billigolie_product_4775.json` has the full response):
+
 ```json
-{"prices":{"price":[
-  {"@_date":"07.10.2024","value":16437.25},
-  {"@_date":"08.10.2024","value":16437.25},
-  ...
-  {"@_date":"06.10.2026","value":22521},
-  {"@_date":"07.10.2026","value":22321}
-]}}
+{"id":4775,"name":"Billig Fyringsolie Luxus 1000 L","prices":{"price":"1736","regular_price":"1736","sale_price":"1736","currency_code":"DKK","currency_minor_unit":2}}
 ```
 
-Recent values: 2026-09-17 peak 23,521; 2026-10-01 22,521; 2026-10-05 22,721; 2026-10-06 22,521; 2026-10-07 22,321.
+History page chart script, 2026-10-30 (53 weekly Alm. prices per 1000 L, `tests/fixtures/billigolie_history_2026-10-30.html`):
+
+```js
+var startDate = new Date(2025,9,20);
+var bo_vores = [11700,10900,11200, ... ,17380,17260,17260];
+```
+
+The tests for the stats and decision logic still use two years of daily prices saved from the previous supplier's feed (`tests/fixtures/feed_2026-10-07.json`, loaded by `load_price_fixture()` in `tests/conftest.py`).

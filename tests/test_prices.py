@@ -3,8 +3,7 @@
 from datetime import date, timedelta
 
 import pytest
-from conftest import FIXTURES
-from oil_tank.feed import parse_feed
+from conftest import load_price_fixture
 from oil_tank.prices import price_stats
 
 TODAY = date(2026, 10, 7)
@@ -21,7 +20,7 @@ def test_empty_list_returns_none():
 
 
 def test_real_data_case():
-    prices = parse_feed((FIXTURES / "feed_2026-10-07.json").read_text())
+    prices = load_price_fixture()
     stats = price_stats(prices, TODAY, 30)
     assert stats.price == 22321
     assert stats.average == pytest.approx(22811)

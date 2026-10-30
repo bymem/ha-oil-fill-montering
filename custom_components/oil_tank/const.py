@@ -24,7 +24,17 @@ CONF_STOCK_UP_PERCENT = "stock_up_percent"
 CONF_STOCK_UP_DAYS = "stock_up_days"
 
 DEFAULT_CAPACITY_L = 1200
-DEFAULT_FEED_URL = "https://www.fyringsolie.dk/api/yx-xml/pg000015BULK.xml"
+# Billigolie.dk Store API, product 4775 = Luxus 1000 L (Alm. 1000 L is 4792).
+DEFAULT_FEED_URL = "https://www.billigolie.dk/wp-json/wc/store/v1/products/4775"
+# Dead feed of the previous supplier; entries still using it are moved to
+# the default on setup.
+OLD_FEED_URL = "https://www.fyringsolie.dk/api/yx-xml/pg000015BULK.xml"
+
+# One-time history import (spec 3.1): the market page's weekly chart holds
+# Alm. prices, shifted onto the configured product by today's difference
+# between that product and Alm.
+HISTORY_PAGE_URL = "https://www.billigolie.dk/pris-paa-fyringsolie/oliepris-og-markedsudvikling/"
+HISTORY_BASE_PRODUCT_URL = "https://www.billigolie.dk/wp-json/wc/store/v1/products/4792"
 
 # Defaults for every setting except the temperature sensor (always chosen).
 DEFAULTS = {
@@ -49,7 +59,7 @@ DEFAULTS = {
     CONF_STOCK_UP_DAYS: 90,
 }
 
-# Price feed polling (spec 3.1): prices change once a day.
+# Price feed polling (spec 3.1): prices change at most once a day.
 FEED_POLL_INTERVAL = timedelta(hours=3)
 FEED_RETRY_INTERVAL = timedelta(minutes=30)
 FEED_TIMEOUT_SECONDS = 30

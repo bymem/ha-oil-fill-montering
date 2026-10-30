@@ -3,9 +3,8 @@
 from datetime import date, timedelta
 
 import pytest
-from conftest import FIXTURES
+from conftest import load_price_fixture
 from oil_tank.decision import decide
-from oil_tank.feed import parse_feed
 from oil_tank.model import days_left, make_rates
 from oil_tank.prices import PriceStats, price_stats
 
@@ -110,7 +109,7 @@ def test_waiting_for_better_price():
 )
 def test_worked_example_on_real_data(level, start, order_by):
     """Spec section 7 table: real prices on 2026-10-07, default model."""
-    stats = price_stats(parse_feed((FIXTURES / "feed_2026-10-07.json").read_text()), TODAY, 30)
+    stats = price_stats(load_price_fixture(), TODAY, 30)
     days = days_left(level, TODAY, make_rates(), 1.0)
     result = _decide(level, days, stats)
     assert result.order is False
@@ -159,7 +158,7 @@ def test_urgent_wins_over_stock_up():
 
 def test_stock_up_catches_june_2026_dip():
     """Backtest case: 18 June 2026, 19.02 kr/L, more than 7% below the 90-day average."""
-    prices = parse_feed((FIXTURES / "feed_2026-10-07.json").read_text())
+    prices = load_price_fixture()
     day = date(2026, 6, 18)
     upto = [p for p in prices if p[0] <= day]
     result = decide(

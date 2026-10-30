@@ -16,7 +16,10 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 
 from .const import (
+    CONF_FEED_URL,
+    DEFAULT_FEED_URL,
     DOMAIN,
+    OLD_FEED_URL,
     PANEL_ICON,
     PANEL_STATIC_URL,
     PANEL_TITLE,
@@ -27,7 +30,7 @@ from .coordinator import OilTankCoordinator
 from .data import OilTankConfigEntry, OilTankData
 from .services import async_register_services, async_remove_services
 from .settings import Settings
-from .storage import OilTankStore
+from .storage import OilTankStore, PriceHistoryStore
 from .tank import TankManager
 from .websocket_api import async_register_commands
 
@@ -46,8 +49,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: OilTankConfigEntry) -> b
     Option changes reload the entry (OptionsFlowWithReload), so settings are
     read once here.
     """
+    _migrate_feed_url(hass, entry)
     settings = Settings.from_entry(entry)
-    coordinator = OilTankCoordinator(hass, entry, settings)
+    history = PriceHistoryStore(hass)
+    await history.async_load()
+    coordinator = OilTankCoordinator(hass, entry, settings, history)
     # Plain refresh, not first_refresh: a dead feed must not block setup.
     await coordinator.async_refresh()
 
@@ -59,6 +65,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: OilTankConfigEntry) -> b
     async_register_services(hass, tank)
     await _async_register_panel(hass)
     return True
+
+
+def _migrate_feed_url(hass: HomeAssistant, entry: OilTankConfigEntry) -> None:
+    """Move entries off the previous supplier's dead feed to the default feed."""
+    data, options = dict(entry.data), dict(entry.options)
+    for values in (data, options):
+        if values.get(CONF_FEED_URL) == OLD_FEED_URL:
+            values[CONF_FEED_URL] = DEFAULT_FEED_URL
+    if data != entry.data or options != entry.options:
+        hass.config_entries.async_update_entry(entry, data=data, options=options)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: OilTankConfigEntry) -> bool:

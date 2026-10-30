@@ -3,11 +3,11 @@
 Keeps track of an oil tank without a working gauge. It estimates the oil left from outdoor temperature, follows the supplier's daily price, and tells you when it is a good moment to order.
 
 - **Level estimate:** modelled from degree-days (outdoor temperature) and a burn rate measured from your own logged deliveries. Every delivery moves the estimate; needle readings fine-tune it and, slowly, the model itself.
-- **Price:** today's list price from the supplier's feed, compared with the recent average.
+- **Price:** today's price from the supplier's shop, saved day by day and compared with the recent average. About a year of weekly history is imported on first start.
 - **Recommendation:** "order now" when oil runs low, "good time to order" when the price is good and the tank has room.
 - **Panel:** a sidebar page with the gauge, outlook, price chart, fill-up form and history. The **Predict** button in the outlook opens a calculator: enter liters and see the level after delivery, when you would need to order again, and the cost at today's price.
 
-Built for the Uno-X heating oil feed (fyringsolie.dk), prices in DKK. Full specification: [`docs/SPEC-2.md`](docs/SPEC-2.md).
+Built for Billigolie.dk (Luxus heating oil by default), prices in DKK. Full specification: [`docs/SPEC-2.md`](docs/SPEC-2.md).
 
 ## Install (HACS)
 
@@ -23,7 +23,7 @@ The setup screen asks for:
 
 - **Tank capacity** in liters (default 1,200).
 - **Outdoor temperature sensor** - any sensor with the temperature device class. Fahrenheit sensors are converted.
-- **Price feed URL** - keep the default. Setup checks that the feed answers.
+- **Price feed URL** - keep the default (Billigolie.dk Luxus 1000 L). For another product use `https://www.billigolie.dk/wp-json/wc/store/v1/products/<id>` (Alm. 1000 L is `4792`). Setup checks that the feed answers.
 
 Then open **Oil tank** in the sidebar:
 

@@ -1,4 +1,4 @@
-"""Persisted state (spec section 6): one Home Assistant Store document.
+"""Persisted state (spec section 6): the tank document and the price history.
 
 Saved immediately after a user action, otherwise debounced to at most once
 per 60 seconds (degree-day ticks change the document every 10 minutes).
@@ -6,6 +6,7 @@ per 60 seconds (degree-day ticks change the document every 10 minutes).
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -54,3 +55,34 @@ class OilTankStore:
     def schedule_save(self) -> None:
         """Debounced save for background changes."""
         self._store.async_delay_save(lambda: self.data, SAVE_DELAY_SECONDS)
+
+
+PRICE_STORAGE_KEY = f"{DOMAIN}.prices"
+
+
+class PriceHistoryStore:
+    """Saved daily prices (DKK per 1000 L), since the feed gives only today's price.
+
+    Document: {"prices": [["2026-10-30", 17360.0], ...], "imported": bool}.
+    `imported` turns true once the one-time history import has succeeded.
+    """
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        self._store: Store[dict[str, Any]] = Store(hass, STORAGE_VERSION, PRICE_STORAGE_KEY)
+        self.prices: list[tuple[date, float]] = []
+        self.imported = False
+
+    async def async_load(self) -> None:
+        """Load from disk; a missing file means an empty history."""
+        stored = await self._store.async_load() or {}
+        self.prices = [(date.fromisoformat(day), float(value)) for day, value in stored.get("prices", [])]
+        self.imported = bool(stored.get("imported", False))
+
+    async def async_save(self) -> None:
+        """Save right away; this happens at most once per feed poll."""
+        await self._store.async_save(
+            {
+                "prices": [[day.isoformat(), value] for day, value in self.prices],
+                "imported": self.imported,
+            }
+        )
