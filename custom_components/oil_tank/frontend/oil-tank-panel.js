@@ -340,6 +340,10 @@ class OilTankPanel extends HTMLElement {
 
     const svg = this.shadowRoot.querySelector("svg.gauge");
     svg.addEventListener("pointerdown", (ev) => {
+      // The dial only reacts after Adjust; a stray tap or scroll swipe is ignored.
+      if (this._pending === null) {
+        return;
+      }
       this._pointerActive = true;
       svg.setPointerCapture(ev.pointerId);
       this._dragTo(svg, ev);
@@ -444,6 +448,8 @@ class OilTankPanel extends HTMLElement {
       this._el(id).hidden = !editing;
     }
     this._el("adjust").hidden = editing;
+    // While editing the dial takes touch gestures; otherwise the page scrolls over it.
+    this.shadowRoot.querySelector("svg.gauge").classList.toggle("editing", editing);
     hint.hidden = true;
 
     if (this._pending !== null) {
@@ -1075,7 +1081,8 @@ const STYLES = `
 
   /* Dial: layout copied from the physical gauge, colours from the theme
      (printed scale in the accent colour, like the gauge's blue print). */
-  .gauge { width: 100%; max-width: 460px; display: block; margin: 0 auto; touch-action: none; cursor: pointer; user-select: none; }
+  .gauge { width: 100%; max-width: 460px; display: block; margin: 0 auto; touch-action: pan-y; user-select: none; }
+  .gauge.editing { touch-action: none; cursor: pointer; }
   .tick { stroke: var(--accent); stroke-width: 2.5; }
   .tick.major { stroke-width: 4; }
   .label { fill: var(--accent); font-size: 14px; font-weight: 600; text-anchor: middle; dominant-baseline: middle; }
